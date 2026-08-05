@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-
 import { LogoMark } from './LogoMark';
-
 import { SUPPORTED_COUNTRIES } from '../data/mockData';
+import { 
+  Menu, X, Globe, DollarSign, User, Wallet, ShoppingBag, 
+  LogOut, Sun, Moon, ShieldCheck, Home, Gamepad2, Plus 
+} from 'lucide-react';
 
 // Country data for registration
 const COUNTRY_LIST = SUPPORTED_COUNTRIES;
@@ -47,6 +49,9 @@ export const Header = () => {
     register,
     logout
   } = useApp();
+
+  // Mobile navigation drawer toggle
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal]   = useState(false);
@@ -143,20 +148,25 @@ export const Header = () => {
     }
   };
 
+  const handleTabClick = (tab) => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+  };
+
   return (
     <>
       <header className="fixed top-0 w-full z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 shadow-sm transition-all">
         <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-20">
           
           {/* Brand Logo */}
-          <div onClick={() => setActiveTab('home')}>
+          <div onClick={() => handleTabClick('home')} className="cursor-pointer">
             <LogoMark />
           </div>
 
-          {/* Navigation Links */}
+          {/* Navigation Links (Desktop lg) */}
           <nav className="hidden lg:flex items-center space-x-6 rtl:space-x-reverse font-extrabold text-base">
             <button 
-              onClick={() => setActiveTab('home')}
+              onClick={() => handleTabClick('home')}
               className={activeTab === 'home' 
                 ? "text-blue-600 dark:text-cyan-400 font-black border-b-2 border-blue-600 dark:border-cyan-400 pb-1"
                 : "text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-cyan-400 font-extrabold transition"}
@@ -164,7 +174,7 @@ export const Header = () => {
               {lang === 'ar' ? 'الرئيسية' : 'Home'}
             </button>
             <button 
-              onClick={() => setActiveTab('browse')}
+              onClick={() => handleTabClick('browse')}
               className={activeTab === 'browse'
                 ? "text-blue-600 dark:text-cyan-400 font-black border-b-2 border-blue-600 dark:border-cyan-400 pb-1"
                 : "text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-cyan-400 font-extrabold transition"}
@@ -173,7 +183,7 @@ export const Header = () => {
             </button>
             {user && (
               <button 
-                onClick={() => setActiveTab('dashboard')}
+                onClick={() => handleTabClick('dashboard')}
                 className={activeTab === 'dashboard'
                   ? "text-blue-600 dark:text-cyan-400 font-black border-b-2 border-blue-600 dark:border-cyan-400 pb-1"
                   : "text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-cyan-400 font-extrabold transition"}
@@ -183,7 +193,7 @@ export const Header = () => {
             )}
             {user && user.role === 'ADMIN' && (
               <button 
-                onClick={() => setActiveTab('admin')}
+                onClick={() => handleTabClick('admin')}
                 className={activeTab === 'admin'
                   ? "text-blue-600 dark:text-cyan-400 font-black border-b-2 border-blue-600 dark:border-cyan-400 pb-1 flex items-center gap-1.5"
                   : "text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-cyan-400 font-extrabold transition flex items-center gap-1.5"}
@@ -195,11 +205,11 @@ export const Header = () => {
           </nav>
 
           {/* Action Controls */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             
-            {/* Site Wallet Balance Badge & TopUp CTA */}
+            {/* Wallet Balance Badge (Desktop lg) */}
             {user && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-600/10 via-cyan-500/10 to-emerald-500/10 border border-blue-500/30 rounded-xl">
+              <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-600/10 via-cyan-500/10 to-emerald-500/10 border border-blue-500/30 rounded-xl">
                 <div className="text-right rtl:text-right">
                   <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase block">
                     {lang === 'ar' ? 'رصيد المحفظة' : 'Wallet Balance'}
@@ -212,98 +222,302 @@ export const Header = () => {
                   onClick={handleOpenTopUp}
                   className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[11px] rounded-lg shadow-sm transition flex items-center gap-1"
                 >
-                  <span>+</span>
+                  <Plus className="w-3.5 h-3.5" />
                   <span>{lang === 'ar' ? 'شحن' : 'TopUp'}</span>
                 </button>
               </div>
             )}
 
-            {/* Country/Region Storefront Selector */}
-            <select 
-              value={browsingCountry}
-              onChange={(e) => setBrowsingCountry(e.target.value)}
-              className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs"
-            >
-              {COUNTRY_LIST.map(c => (
-                <option key={c.code} value={c.code}>
-                  {c.flag} {lang === 'ar' ? c.name : c.nameEn}
-                </option>
-              ))}
-            </select>
+            {/* Country Selector (Desktop lg) */}
+            <div className="hidden lg:block">
+              <select 
+                value={browsingCountry}
+                onChange={(e) => setBrowsingCountry(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs cursor-pointer"
+              >
+                {COUNTRY_LIST.map(c => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {lang === 'ar' ? c.name : c.nameEn}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            {/* Multi-Currency Selector */}
-            <select 
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs"
-            >
-              <option value="USD">$ USD</option>
-              <option value="EUR">€ EUR</option>
-              <option value="SAR">ر.س SAR</option>
-              <option value="AED">د.إ AED</option>
-              <option value="YER">ر.ي YER</option>
-              <option value="EGP">ج.م EGP</option>
-            </select>
+            {/* Multi-Currency Selector (Desktop lg) */}
+            <div className="hidden lg:block">
+              <select 
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs cursor-pointer"
+              >
+                <option value="USD">$ USD</option>
+                <option value="EUR">€ EUR</option>
+                <option value="SAR">ر.س SAR</option>
+                <option value="AED">د.إ AED</option>
+                <option value="YER">ر.ي YER</option>
+                <option value="EGP">ج.م EGP</option>
+              </select>
+            </div>
 
-            {/* Language Switcher */}
+            {/* Language Switcher (Desktop lg) */}
             <button 
-              className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-black text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 transition shadow-xs"
+              className="hidden lg:block px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-black text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 transition shadow-xs"
               onClick={toggleLang}
             >
               {lang === 'ar' ? 'EN' : 'AR'}
             </button>
 
-            {/* Theme Switcher */}
+            {/* Theme Switcher (Desktop lg) */}
             <button 
-              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 border-2 border-slate-300 dark:border-slate-700 transition shadow-xs flex items-center justify-center"
+              className="hidden lg:flex p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 border-2 border-slate-300 dark:border-slate-700 transition shadow-xs items-center justify-center"
               onClick={toggleTheme}
             >
-              <span className="material-symbols-outlined text-base">
-                {theme === 'dark' ? 'light_mode' : 'dark_mode'}
-              </span>
+              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
             </button>
 
-            {/* User Account / Auth Toggle */}
-            {user ? (
-              <div className="flex items-center gap-1.5">
+            {/* User Account / Auth Toggle (Desktop lg) */}
+            <div className="hidden lg:flex items-center">
+              {user ? (
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={() => handleTabClick('dashboard')}
+                    className="px-3 py-1.5 rounded-xl bg-blue-600/10 text-blue-600 dark:text-cyan-400 font-extrabold text-xs border border-blue-500/30 flex items-center gap-1"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>{user.name.split(' ')[0]}</span>
+                  </button>
+                  <button 
+                    onClick={logout}
+                    title={lang === 'ar' ? 'تسجيل الخروج' : 'Logout'}
+                    className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-500/10 transition"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
                 <button 
-                  onClick={() => setActiveTab('dashboard')}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600/10 text-blue-600 dark:text-cyan-400 font-extrabold text-xs border border-blue-500/30 flex items-center gap-1"
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-extrabold text-xs shadow-md hover:bg-blue-500 transition"
                 >
-                  <span className="material-symbols-outlined text-sm">person</span>
-                  <span className="hidden md:inline">{user.name.split(' ')[0]}</span>
+                  {lang === 'ar' ? 'تسجيل الدخول' : 'Login'}
                 </button>
-                <button 
-                  onClick={logout}
-                  title={lang === 'ar' ? 'تسجيل الخروج' : 'Logout'}
-                  className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-500/10 transition"
-                >
-                  <span className="material-symbols-outlined text-base">logout</span>
-                </button>
-              </div>
-            ) : (
-              <button 
-                onClick={() => setShowAuthModal(true)}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 text-white font-extrabold text-xs shadow-md hover:bg-blue-500 transition"
-              >
-                {lang === 'ar' ? 'تسجيل الدخول' : 'Login'}
-              </button>
-            )}
+              )}
+            </div>
 
-            {/* Cart Icon */}
+            {/* Cart Icon (Visible on ALL Devices) */}
             <button 
-              className="relative p-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition"
+              className="relative p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition shadow-md flex items-center justify-center"
               onClick={() => setIsCartOpen(true)}
             >
-              <span className="material-symbols-outlined text-lg">shopping_cart</span>
+              <ShoppingBag className="w-5 h-5" />
               {cartItemsCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-black border-2 border-white dark:border-slate-900 shadow-xs">
                   {cartItemsCount}
                 </span>
               )}
             </button>
+
+            {/* Mobile Menu Hamburger Toggle (Visible on Mobile `< lg`) */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="lg:hidden p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 transition shadow-xs flex items-center justify-center"
+              aria-label="Toggle Mobile Navigation"
+            >
+              {isMobileMenuOpen ? <X className="w-5 h-5 text-rose-500" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
         </div>
+
+        {/* ===== MOBILE NAVIGATION DRAWER OVERLAY ===== */}
+        {isMobileMenuOpen && (
+          <div className="lg:hidden fixed inset-x-0 top-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border-b border-slate-200 dark:border-slate-800 shadow-2xl overflow-y-auto max-h-[calc(100vh-5rem)] animate-fade-in z-40">
+            <div className="p-5 space-y-6">
+
+              {/* 1. User & Wallet Profile Banner */}
+              {user ? (
+                <div className="p-4 bg-gradient-to-r from-blue-600/10 via-cyan-500/10 to-emerald-500/10 border border-blue-500/30 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center text-base shadow-sm">
+                        {user.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="font-black text-sm text-slate-900 dark:text-white block">
+                          {user.name}
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
+                          {user.email}
+                        </span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => { logout(); setIsMobileMenuOpen(false); }}
+                      className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition"
+                      title={lang === 'ar' ? 'تسجيل الخروج' : 'Logout'}
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-200/50 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase block">
+                        {lang === 'ar' ? 'رصيد المحفظة المتاح' : 'Available Balance'}
+                      </span>
+                      <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                        {formatCurrency(userWallet?.availableBalance || 0)}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => { setIsMobileMenuOpen(false); handleOpenTopUp(); }}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{lang === 'ar' ? 'شحن المحفظة' : 'Top Up Wallet'}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl text-center space-y-3">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    {lang === 'ar' ? 'سجل دخولك الآن للوصول إلى محفظتك وسجل الطلبات' : 'Sign in to access your wallet & order history'}
+                  </p>
+                  <button 
+                    onClick={() => { setIsMobileMenuOpen(false); setShowAuthModal(true); }}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl text-sm shadow-md transition flex items-center justify-center gap-2"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>{lang === 'ar' ? 'تسجيل الدخول / إنشاء حساب' : 'Login / Register'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 2. Navigation Links */}
+              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-wider">
+                  {lang === 'ar' ? 'أقسام الموقع' : 'Navigation'}
+                </span>
+                <div className="grid grid-cols-1 gap-1.5 font-black text-sm">
+                  <button 
+                    onClick={() => handleTabClick('home')}
+                    className={`w-full px-4 py-3 rounded-xl flex items-center gap-3 transition ${activeTab === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}
+                  >
+                    <Home className="w-5 h-5" />
+                    <span>{lang === 'ar' ? 'الرئيسية' : 'Home'}</span>
+                  </button>
+
+                  <button 
+                    onClick={() => handleTabClick('browse')}
+                    className={`w-full px-4 py-3 rounded-xl flex items-center gap-3 transition ${activeTab === 'browse' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}
+                  >
+                    <Gamepad2 className="w-5 h-5" />
+                    <span>{lang === 'ar' ? 'المنتجات والألعاب الرقمية' : 'Digital Products'}</span>
+                  </button>
+
+                  {user && (
+                    <button 
+                      onClick={() => handleTabClick('dashboard')}
+                      className={`w-full px-4 py-3 rounded-xl flex items-center gap-3 transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}
+                    >
+                      <Wallet className="w-5 h-5" />
+                      <span>{lang === 'ar' ? 'محفظتي وحسابي' : 'Wallet & Account'}</span>
+                    </button>
+                  )}
+
+                  {user && user.role === 'ADMIN' && (
+                    <button 
+                      onClick={() => handleTabClick('admin')}
+                      className={`w-full px-4 py-3 rounded-xl flex items-center justify-between transition ${activeTab === 'admin' ? 'bg-rose-600 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <ShieldCheck className="w-5 h-5" />
+                        <span>{lang === 'ar' ? 'مركز التحكم والتحليل' : 'Admin Console'}</span>
+                      </div>
+                      <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-md">HQ</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Preferences Bar (Country, Currency, Language, Theme) */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                <span className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-wider">
+                  {lang === 'ar' ? 'إعدادات المتجر والدولة' : 'Store Settings'}
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Country Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                      <Globe className="w-3.5 h-3.5 text-blue-500" />
+                      <span>{lang === 'ar' ? 'دولة التصفح' : 'Store Region'}</span>
+                    </label>
+                    <select 
+                      value={browsingCountry}
+                      onChange={(e) => setBrowsingCountry(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none"
+                    >
+                      {COUNTRY_LIST.map(c => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {lang === 'ar' ? c.name : c.nameEn}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Currency Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>{lang === 'ar' ? 'عملة العرض' : 'Currency'}</span>
+                    </label>
+                    <select 
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none"
+                    >
+                      <option value="USD">$ USD</option>
+                      <option value="EUR">€ EUR</option>
+                      <option value="SAR">ر.س SAR</option>
+                      <option value="AED">د.إ AED</option>
+                      <option value="YER">ر.ي YER</option>
+                      <option value="EGP">ج.م EGP</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Quick Toggles: Language & Theme */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button 
+                    onClick={toggleLang}
+                    className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition"
+                  >
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    <span>{lang === 'ar' ? 'English (EN)' : 'العربية (AR)'}</span>
+                  </button>
+
+                  <button 
+                    onClick={toggleTheme}
+                    className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition"
+                  >
+                    {theme === 'dark' ? (
+                      <>
+                        <Sun className="w-4 h-4 text-amber-400" />
+                        <span>{lang === 'ar' ? 'الوضع الفاتح' : 'Light Mode'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Moon className="w-4 h-4 text-slate-700" />
+                        <span>{lang === 'ar' ? 'الوضع الداكن' : 'Dark Mode'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
       </header>
 
       {/* ===== MULTI-STEP TOP-UP WALLET MODAL ===== */}

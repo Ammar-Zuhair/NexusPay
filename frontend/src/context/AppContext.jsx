@@ -17,9 +17,73 @@ const AppContext = createContext();
 export const AppProvider = ({ children }) => {
   const [lang, setLang] = useState('ar'); // Default language Arabic
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-  const [currency, setCurrency] = useState('USD'); // USD, EUR, SAR, AED, YER, EGP
-  const [activeTab, setActiveTab] = useState('home');
-  const [selectedGameId, setSelectedGameId] = useState('pubg-mobile');
+  const [activeTab, setActiveTabState] = useState('home');
+  const [selectedGameId, setSelectedGameIdState] = useState('pubg-mobile');
+
+  // Sync tab navigation with Browser History (Back / Forward button support)
+  const changeTabWithHistory = (newTab, gameId = null, replace = false) => {
+    const targetGameId = gameId || selectedGameId;
+    setActiveTabState(newTab);
+    if (gameId) {
+      setSelectedGameIdState(gameId);
+    }
+
+    const stateObj = { tab: newTab, gameId: targetGameId };
+    const hashStr = '#' + newTab + (newTab === 'product' && targetGameId ? `/${targetGameId}` : '');
+
+    if (replace) {
+      window.history.replaceState(stateObj, '', hashStr);
+    } else {
+      if (window.location.hash !== hashStr) {
+        window.history.pushState(stateObj, '', hashStr);
+      }
+    }
+  };
+
+  const setActiveTab = (tab, gameId = null) => {
+    changeTabWithHistory(tab, gameId);
+  };
+
+  const setSelectedGameId = (gameId) => {
+    setSelectedGameIdState(gameId);
+    if (activeTab === 'product') {
+      changeTabWithHistory('product', gameId, true);
+    }
+  };
+
+  // Browser History (Popstate) & URL Hash Listener for Back/Forward Buttons
+  useEffect(() => {
+    const handlePopState = (event) => {
+      if (event.state && event.state.tab) {
+        setActiveTabState(event.state.tab);
+        if (event.state.gameId) {
+          setSelectedGameIdState(event.state.gameId);
+        }
+      } else if (window.location.hash) {
+        const hash = window.location.hash.replace('#', '');
+        const parts = hash.split('/');
+        const tab = parts[0] || 'home';
+        const gId = parts[1] || null;
+
+        setActiveTabState(tab);
+        if (gId) {
+          setSelectedGameIdState(gId);
+        }
+      } else {
+        setActiveTabState('home');
+      }
+    };
+
+    if (window.location.hash) {
+      handlePopState({});
+    } else {
+      window.history.replaceState({ tab: 'home', gameId: 'pubg-mobile' }, '', '#home');
+    }
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [toasts, setToasts] = useState([]);

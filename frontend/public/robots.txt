@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+
+# Sitemap URL
+Sitemap: https://nexuspaystore.com/sitemap.xml
