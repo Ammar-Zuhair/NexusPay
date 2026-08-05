@@ -17,6 +17,7 @@ const AppContext = createContext();
 export const AppProvider = ({ children }) => {
   const [lang, setLang] = useState('ar'); // Default language Arabic
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const [currency, setCurrency] = useState('USD'); // USD, EUR, SAR, AED, YER, EGP
   const [activeTab, setActiveTabState] = useState('home');
   const [selectedGameId, setSelectedGameIdState] = useState('pubg-mobile');
 
