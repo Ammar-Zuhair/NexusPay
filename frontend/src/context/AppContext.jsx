@@ -85,21 +85,91 @@ export const AppProvider = ({ children }) => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const [cart, setCart] = useState([]);
+  // Persistent User Session
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_user_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [isGuestMode, setIsGuestMode] = useState(() => !user);
+
+  // Persistent Cart Items
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_cart_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
 
-  // User & Guest Checkout State — starts as guest (no hardcoded demo user)
-  const [user, setUser] = useState(null);
-  const [isGuestMode, setIsGuestMode] = useState(true);
+  // Persistent Wallet & Ledger State
+  const [userWallet, setUserWallet] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_user_wallet');
+      return saved ? JSON.parse(saved) : { availableBalance: 0, heldBalance: 0, currency: 'USD' };
+    } catch {
+      return { availableBalance: 0, heldBalance: 0, currency: 'USD' };
+    }
+  });
 
-  // Wallet & Ledger State — starts empty, populated after login
-  const [userWallet, setUserWallet] = useState({ availableBalance: 0, heldBalance: 0, currency: 'USD' });
-  const [userCountry, setUserCountry] = useState('SA');
-  const [browsingCountry, setBrowsingCountry] = useState('SA'); // Default view country code
-  const [orders, setOrders] = useState([]);
+  const [userCountry, setUserCountry] = useState(() => localStorage.getItem('nexus_user_country') || 'SA');
+  const [browsingCountry, setBrowsingCountry] = useState(() => localStorage.getItem('nexus_browsing_country') || 'SA');
+
+  // Persistent Orders History
+  const [orders, setOrders] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_user_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [notifications, setNotifications] = useState([]);
   const [isTopUpProcessing, setIsTopUpProcessing] = useState(false);
+
+  // Auto-sync User Session to localStorage
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('nexus_user_session', JSON.stringify(user));
+      setIsGuestMode(false);
+    } else {
+      localStorage.removeItem('nexus_user_session');
+      setIsGuestMode(true);
+    }
+  }, [user]);
+
+  // Auto-sync Cart to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexus_cart_items', JSON.stringify(cart));
+  }, [cart]);
+
+  // Auto-sync Wallet to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexus_user_wallet', JSON.stringify(userWallet));
+  }, [userWallet]);
+
+  // Auto-sync Country preferences
+  useEffect(() => {
+    localStorage.setItem('nexus_browsing_country', browsingCountry);
+  }, [browsingCountry]);
+
+  useEffect(() => {
+    localStorage.setItem('nexus_user_country', userCountry);
+  }, [userCountry]);
+
+  // Auto-sync Orders to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexus_user_orders', JSON.stringify(orders));
+  }, [orders]);
 
   // Dynamic Products & Providers State with Real-Time Backend API Sync
   const [products, setProducts] = useState(MOCK_GAMES);
@@ -364,6 +434,12 @@ export const AppProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setIsGuestMode(true);
+    setUserWallet({ availableBalance: 0, heldBalance: 0, currency: 'USD' });
+    setOrders([]);
+    localStorage.removeItem('nexus_user_session');
+    localStorage.removeItem('nexus_user_wallet');
+    localStorage.removeItem('nexus_user_orders');
+    localStorage.removeItem('nexus_cart_items');
     addToast(lang === 'ar' ? 'تم تسجيل الخروج بنجاح' : 'Logged out successfully', 'info');
   };
 
