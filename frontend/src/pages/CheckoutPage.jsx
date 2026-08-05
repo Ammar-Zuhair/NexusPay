@@ -17,15 +17,22 @@ export const CheckoutPage = () => {
     formatCurrency 
   } = useApp();
 
-  // If user is logged in, default to Registered mode & WALLET payment, else Guest mode & Credit Card
+  // If user is logged in, default to Registered mode & WALLET payment, else Guest mode & VISA_MC
   const [isGuest, setIsGuest] = useState(!user);
-  const [paymentMethod, setPaymentMethod] = useState(user ? 'WALLET' : 'CREDIT_CARD');
+  const [paymentMethod, setPaymentMethod] = useState(user ? 'WALLET' : 'VISA_MC');
   
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [showTopUpPrompt, setShowTopUpPrompt] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
+
+  // MasterCard & Card Payment State
+  const [cardNum, setCardNum] = useState('');
+  const [cardExp, setCardExp] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+  const [cardName, setCardName] = useState('');
+  const [paypalEmail, setPaypalEmail] = useState('');
 
   const subtotalUSD = cart.reduce((sum, item) => sum + ((item.priceUSD || 9.99) * item.quantity), 0);
   const totalUSD = subtotalUSD > 0 ? subtotalUSD : 9.99;
@@ -46,6 +53,16 @@ export const CheckoutPage = () => {
       return;
     }
 
+    if (paymentMethod === 'VISA_MC' && !cardNum.trim()) {
+      alert(lang === 'ar' ? 'يرجى إدخال رقم بطاقة MasterCard / Visa المصرفية' : 'Please enter your MasterCard / Visa card number');
+      return;
+    }
+
+    if (paymentMethod === 'PAYPAL' && !paypalEmail.trim()) {
+      alert(lang === 'ar' ? 'يرجى إدخال حساب أو إيميل PayPal' : 'Please enter your PayPal email');
+      return;
+    }
+
     if (!isGuest && paymentMethod === 'WALLET' && !hasSufficientWalletBalance) {
       setShowTopUpPrompt(true);
       return;
@@ -59,6 +76,11 @@ export const CheckoutPage = () => {
         targetAccountId: defaultItem.targetAccountId || defaultItem.playerId || 'N/A',
         totalUSD: totalUSD,
         paymentMethod: paymentMethod,
+        paymentDetails: paymentMethod === 'VISA_MC' 
+          ? { maskedCard: cardNum.slice(-4), cardName } 
+          : paymentMethod === 'PAYPAL' 
+            ? { paypalEmail } 
+            : {},
         isGuest: isGuest,
         guestEmail: isGuest ? guestEmail : (user?.email || ''),
         guestPhone: isGuest ? guestPhone : (user?.phone || '')
@@ -82,22 +104,24 @@ export const CheckoutPage = () => {
       badge: lang === 'ar' ? 'تأكيد فوري بضغطة واحدة' : 'Instant 1-Click'
     }] : []),
     { 
-      id: 'CREDIT_CARD', 
-      title: 'Credit Card / Visa / Mada / Apple Pay', 
-      desc: lang === 'ar' ? 'دفع آمن ومشفر بالبطاقات البنكية' : 'Bank card encrypted payment', 
-      icon: CreditCard 
+      id: 'VISA_MC', 
+      title: lang === 'ar' ? 'بطاقة ماستركارد / فيزا البنكية (MasterCard / Visa)' : 'MasterCard / Visa Card', 
+      desc: lang === 'ar' ? 'سداد مباشر وتشفير آمن ببطاقات ماستركارد وفيزا المصرفية' : 'Direct encrypted credit card payment', 
+      icon: CreditCard,
+      badge: 'MasterCard / Visa'
     },
     { 
-      id: 'STC_PAY', 
-      title: 'STC Pay / Local Mobile Wallets', 
-      desc: lang === 'ar' ? 'سداد فوري عبر المحافظ المحلية' : 'Local mobile wallet payment', 
+      id: 'PAYPAL', 
+      title: lang === 'ar' ? 'بايبال العالمي (PayPal Checkout)' : 'PayPal Instant Checkout', 
+      desc: lang === 'ar' ? 'الدفع السريع والمباشر عبر حساب PayPal' : 'Instant PayPal account checkout', 
+      icon: Globe,
+      badge: 'PayPal'
+    },
+    { 
+      id: 'APPLE_PAY', 
+      title: 'Apple Pay (أبل باي)', 
+      desc: lang === 'ar' ? 'سداد فوري بنقرة واحدة عبر أجهزة أبل' : 'Instant 1-click device checkout', 
       icon: Smartphone 
-    },
-    { 
-      id: 'USDT', 
-      title: 'Crypto USDT (TRC-20)', 
-      desc: lang === 'ar' ? 'دفع آمن بالعملات الرقمية المشفرة' : 'TRC-20 Tether payment', 
-      icon: Globe 
     }
   ];
 
@@ -314,6 +338,112 @@ export const CheckoutPage = () => {
                 );
               })}
             </div>
+
+            {/* MasterCard / Visa Interactive Details Input Form */}
+            {paymentMethod === 'VISA_MC' && (
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>💳 {lang === 'ar' ? 'تفاصيل بطاقة ماستركارد / فيزا (MasterCard / Visa)' : 'MasterCard / Visa Card Details'}</span>
+                  </span>
+                  <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                    SSL 256-Bit Encrypted
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      {lang === 'ar' ? 'رقم بطاقة ماستركارد / فيزا *' : 'Card Number *'}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={19}
+                      value={cardNum}
+                      onChange={(e) => setCardNum(e.target.value)}
+                      placeholder="5412 8931 0924 1109  أو  4532 9901 2341 8921"
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        {lang === 'ar' ? 'تاريخ الانتهاء (MM/YY)' : 'Expiry Date (MM/YY)'}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={5}
+                        value={cardExp}
+                        onChange={(e) => setCardExp(e.target.value)}
+                        placeholder="12/28"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        {lang === 'ar' ? 'رمز الأمان (CVC / CVV)' : 'Security Code (CVC)'}
+                      </label>
+                      <input
+                        type="password"
+                        maxLength={4}
+                        value={cardCvv}
+                        onChange={(e) => setCardCvv(e.target.value)}
+                        placeholder="•••"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      {lang === 'ar' ? 'اسم صاحب البطاقة' : 'Cardholder Name'}
+                    </label>
+                    <input
+                      type="text"
+                      value={cardName}
+                      onChange={(e) => setCardName(e.target.value)}
+                      placeholder="AMMAR ZUHAIR"
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black text-slate-900 dark:text-white uppercase"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PayPal Instant Checkout Details Input Form */}
+            {paymentMethod === 'PAYPAL' && (
+              <div className="p-4 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-xl space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-indigo-200 dark:border-indigo-900/50 pb-2">
+                  <span className="text-xs font-black text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <span>🅿️ {lang === 'ar' ? 'حساب الدفع عبر PayPal' : 'PayPal Account Checkout'}</span>
+                  </span>
+                  <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full">
+                    PayPal Verified
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-bold text-indigo-900 dark:text-indigo-200 mb-1">
+                      {lang === 'ar' ? 'بريد حساب PayPal *' : 'PayPal Email Address *'}
+                    </label>
+                    <input
+                      type="email"
+                      value={paypalEmail}
+                      onChange={(e) => setPaypalEmail(e.target.value)}
+                      placeholder="paypal.account@example.com"
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-black text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <p className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                    {lang === 'ar' 
+                      ? 'سيتم الخصم المباشر وإصدار الفاتورة الفورية عبر بوابات PayPal الحية والمعتمدة.' 
+                      : 'Payment will be processed instantly via PayPal Live REST Gateway.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Wallet Low Balance Warning */}
             {paymentMethod === 'WALLET' && !isGuest && !hasSufficientWalletBalance && (

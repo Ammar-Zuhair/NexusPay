@@ -356,51 +356,7 @@ export const ProductDetailPage = () => {
                   className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-2xl text-sm font-black text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 transition shadow-inner"
                 />
 
-                {/* Player ID verification action */}
-                {currentGame.productType === 'DIRECT_TOPUP' && (
-                  <div className="flex flex-col gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={handleVerifyPlayerId}
-                      disabled={isVerifying || !targetAccountInput}
-                      className="w-fit px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white dark:bg-cyan-500/10 dark:hover:bg-cyan-500 dark:text-cyan-400 dark:hover:text-slate-900 border border-blue-600/30 dark:border-cyan-500/20 rounded-xl font-black text-xs transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                    >
-                      {isVerifying ? (
-                        <>
-                          <span className="w-3.5 h-3.5 border-2 border-white dark:border-slate-900 border-t-transparent rounded-full animate-spin"></span>
-                          <span>{lang === 'ar' ? 'جاري التحقق...' : 'Verifying...'}</span>
-                        </>
-                      ) : (
-                        <span>{lang === 'ar' ? '🔍 تحقق من اسم الحساب' : '🔍 Verify Account Name'}</span>
-                      )}
-                    </button>
-
-                    {verifiedPlayerName && (
-                      <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-emerald-800 dark:text-emerald-200 font-extrabold text-xs flex items-center gap-2 animate-fade-in shadow-inner">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>
-                          {lang === 'ar'
-                            ? `اسم صاحب الحساب: ${verifiedPlayerName} (يرجى التأكد من مطابقة الاسم قبل الدفع)`
-                            : `Account Name: ${verifiedPlayerName} (Please verify before checkout)`}
-                        </span>
-                      </div>
-                    )}
-
-                    {voucherMessage && (
-                      <div className="p-3.5 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-xl text-blue-800 dark:text-blue-200 font-extrabold text-xs flex items-center gap-2 animate-fade-in shadow-inner">
-                        <span className="shrink-0 text-base">🎫</span>
-                        <span>{voucherMessage}</span>
-                      </div>
-                    )}
-
-                    {verificationError && (
-                      <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-800 dark:text-rose-200 font-extrabold text-xs flex items-center gap-2 animate-fade-in shadow-inner">
-                        <span className="shrink-0 text-base">⚠️</span>
-                        <span>{verificationError}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Player ID verification hidden temporarily */}
 
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
                   {fieldConfig.helpText}
