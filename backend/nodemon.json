@@ -1,0 +1,17 @@
+{
+  "watch": [
+    "server.js",
+    "config",
+    "db",
+    "middleware",
+    "routes",
+    "services"
+  ],
+  "ext": "js,json,env",
+  "ignore": [
+    "*.test.js",
+    "logs/*"
+  ],
+  "delay": "500ms",
+  "exec": "node server.js"
+}

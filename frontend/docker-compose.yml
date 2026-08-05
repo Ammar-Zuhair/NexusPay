@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DB_URL=postgres://cw_user:cw_pass@postgres:5432/coinwestie_db
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: cw_user
+      POSTGRES_PASSWORD: cw_pass
+      POSTGRES_DB: coinwestie_db
+    ports:
+      - "5432:5432"
