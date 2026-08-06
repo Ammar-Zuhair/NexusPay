@@ -7,15 +7,29 @@ on:
     branches: [ main ]
 
 jobs:
-  test-and-build:
+  build-and-test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
-      - run: npm ci
-      - run: npm run build
-      - name: Run Enterprise Suite
-        run: node -e "console.log('Automated Tests Passed')"
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Build Frontend Application
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm install
+
+      - name: Verify Backend Routes Syntax
+        working-directory: ./backend
+        run: node -c server.js
