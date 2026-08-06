@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { MOCK_GAMES, MOCK_USER_ORDERS, MOCK_NOTIFICATIONS, MOCK_FX_RATES, MOCK_PROVIDERS_HEALTH } from '../data/mockData';
+import { MOCK_GAMES, MOCK_CATEGORIES, MOCK_USER_ORDERS, MOCK_NOTIFICATIONS, MOCK_FX_RATES, MOCK_PROVIDERS_HEALTH } from '../data/mockData';
 import { EventBus, DOMAIN_EVENTS } from '../packages/events/EventBus';
 import { CategorizedLogger } from '../packages/logging/CategorizedLogger';
 import { DoubleEntryLedger } from '../services/wallets/DoubleEntryLedger';
@@ -171,9 +171,115 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('nexus_user_orders', JSON.stringify(orders));
   }, [orders]);
 
+  // Persistent Categories State with Enable/Disable Status
+  const [categories, setCategories] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_categories');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return MOCK_CATEGORIES.map(mc => {
+          const found = parsed.find(p => p.id === mc.id);
+          return found ? { ...mc, ...found } : { ...mc, isActive: true };
+        });
+      }
+    } catch {
+      // ignore
+    }
+    return MOCK_CATEGORIES.map(mc => ({ ...mc, isActive: true }));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nexus_categories', JSON.stringify(categories));
+  }, [categories]);
+
+  const toggleCategoryStatus = async (catId) => {
+    setCategories(prev => prev.map(c => {
+      if (c.id === catId) {
+        const nextStatus = c.isActive === false ? true : false;
+        return { ...c, isActive: nextStatus };
+      }
+      return c;
+    }));
+    try {
+      await fetch(`${API_BASE_URL}/categories/${catId}/toggle`, { method: 'PUT' });
+    } catch (err) {
+      console.warn('[BACKEND SYNC NOTICE]', err);
+    }
+    addToast(lang === 'ar' ? 'تم تحديث حالة القسم في المنصة!' : 'Category status updated!');
+  };
+
+  const activeCategories = categories.filter(c => c.isActive !== false);
+
+  // Dynamic Feature Flags State
+  const [featureFlags, setFeatureFlags] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_feature_flags');
+      return saved ? JSON.parse(saved) : {
+        GUEST_CHECKOUT: true,
+        AUTO_FULFILLMENT: true,
+        RELOADLY_FALLBACK: true,
+        MAINTENANCE_MODE: false,
+        ADMIN_2FA_ENFORCE: true
+      };
+    } catch {
+      return { GUEST_CHECKOUT: true, AUTO_FULFILLMENT: true, RELOADLY_FALLBACK: true, MAINTENANCE_MODE: false, ADMIN_2FA_ENFORCE: true };
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nexus_feature_flags', JSON.stringify(featureFlags));
+  }, [featureFlags]);
+
+  const toggleFeatureFlag = (flagKey) => {
+    setFeatureFlags(prev => {
+      const nextVal = !prev[flagKey];
+      return { ...prev, [flagKey]: nextVal };
+    });
+  };
+
+  // Structured Real System Audit & Event Logs State
+  const [systemLogs, setSystemLogs] = useState(() => [
+    { id: 'log-01', timestamp: new Date(Date.now() - 60000 * 5).toISOString(), level: 'INFO', category: 'ORDER', actor: 'SYSTEM', correlationId: 'CID-983728', action: 'ORDER_DELIVERED', details: { orderId: 'NP-981203', product: 'شدات ببجي 600 UC', priceUSD: 9.99, providerCost: 8.50, netProfit: 1.29 } },
+    { id: 'log-02', timestamp: new Date(Date.now() - 60000 * 12).toISOString(), level: 'INFO', category: 'SECURITY', actor: 'usr-admin-ammar', correlationId: 'CID-110293', action: 'ADMIN_LOGIN_SUCCESS', details: { email: 'adminammar@gmail.com', ip: '197.230.12.4' } },
+    { id: 'log-03', timestamp: new Date(Date.now() - 60000 * 25).toISOString(), level: 'WARN', category: 'SYSTEM', actor: 'SYSTEM', correlationId: 'CID-541289', action: 'PROVIDER_LATENCY_WARN', details: { provider: 'GlobalCodes', pingMs: 210, status: 'HALF_OPEN' } }
+  ]);
+
+  const logSystemEvent = ({ category = 'SYSTEM', level = 'INFO', actor = 'SYSTEM', action, details, correlationId }) => {
+    const newLog = {
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+      timestamp: new Date().toISOString(),
+      level,
+      category,
+      actor,
+      action,
+      details,
+      correlationId: correlationId || `CID-${Math.floor(100000 + Math.random() * 900000)}`
+    };
+    setSystemLogs(prev => [newLog, ...prev]);
+  };
+
   // Dynamic Products & Providers State with Real-Time Backend API Sync
   const [products, setProducts] = useState(MOCK_GAMES);
-  const [providersList, setProvidersList] = useState(MOCK_PROVIDERS_HEALTH);
+  const [providersList, setProvidersList] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexus_providers_list');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return MOCK_PROVIDERS_HEALTH.map(p => ({
+      ...p,
+      available_balance: p.balanceUSD || 1500.00,
+      reserved_balance: 0.00,
+      pingMs: p.latencyMs || 120,
+      priority: 1,
+      currency: 'USD'
+    }));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nexus_providers_list', JSON.stringify(providersList));
+  }, [providersList]);
 
   const fetchProducts = (countryCode) => {
     fetch(`${API_BASE_URL}/products?countryCode=${countryCode}`)
@@ -575,77 +681,78 @@ export const AppProvider = ({ children }) => {
   };
   const clearCart = () => setCart([]);
 
-  // Enterprise Place Order Engine (Registered User or Guest Checkout)
+  // Enterprise Place Order Engine (Delegated Entirely to Backend REST API)
   const executeOrderCheckout = async (orderDetails) => {
     const cid = `CID-${Math.floor(100000 + Math.random() * 900000)}`;
     const product = MOCK_GAMES.find(g => g.id === orderDetails.productId) || MOCK_GAMES[0];
-    const totalUSD = orderDetails.totalUSD || 9.99;
-    const currentUserId = user ? user.id : 'usr-demo-01';
-
-    let newOrder = {
-      id: `NP-${Date.now().toString().slice(-6)}`,
-      correlationId: cid,
-      productTitle: product.title[lang] || product.title.en,
-      productId: product.id,
-      targetAccountId: orderDetails.targetAccountId || orderDetails.playerId || 'N/A',
-      isGuest: orderDetails.isGuest || !user,
-      guestEmail: orderDetails.guestEmail || (user ? user.email : 'guest@example.com'),
-      guestPhone: orderDetails.guestPhone || '',
-      priceUSD: totalUSD,
-      paymentMethod: orderDetails.paymentMethod || 'GATEWAY',
-      status: ORDER_STATES.CREATED,
-      date: new Date().toISOString().replace('T', ' ').substring(0, 16)
-    };
 
     try {
-      // 1. FSM: CREATED -> VALIDATING_REQUEST
-      OrderStateMachine.transition(newOrder, ORDER_STATES.VALIDATING_REQUEST, 'Validating customer request', cid);
+      // Direct REST API Request to Express Backend Server
+      const res = await fetch(`${API_BASE_URL}/orders`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'idempotency-key': `ik-${Date.now()}`
+        },
+        body: JSON.stringify({
+          productId: product.id,
+          productTitle: typeof product.title === 'string' ? product.title : (product.title[lang] || product.title.en),
+          packageId: orderDetails.packageId || 'default-pkg',
+          quantity: orderDetails.quantity || 1,
+          priceUSD: orderDetails.totalUSD || product.minPriceUSD || 9.99,
+          providerCostUSD: orderDetails.providerCostUSD || (product.packages?.[0]?.providerCostUSD) || ((orderDetails.totalUSD || 9.99) * 0.85),
+          targetAccountId: orderDetails.targetAccountId || orderDetails.playerId || 'N/A',
+          paymentMethod: orderDetails.paymentMethod || 'GATEWAY',
+          isGuest: orderDetails.isGuest || !user,
+          guestEmail: orderDetails.guestEmail || (user ? user.email : 'guest@example.com')
+        })
+      });
 
-      // 2. Financial Double-Entry Ledger: HOLD Funds if paying with Site Wallet
-      if (orderDetails.paymentMethod === 'WALLET') {
-        DoubleEntryLedger.hold(currentUserId, totalUSD, newOrder.id, cid);
-        setUserWallet({ ...DoubleEntryLedger.getWallet(currentUserId) });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || 'Order fulfillment failed on backend server');
       }
 
-      // 3. FSM: VALIDATING_REQUEST -> PAYMENT_PENDING -> PAYMENT_CONFIRMED
-      OrderStateMachine.transition(newOrder, ORDER_STATES.PAYMENT_PENDING, 'Awaiting gateway confirmation', cid);
-      OrderStateMachine.transition(newOrder, ORDER_STATES.PAYMENT_CONFIRMED, 'Payment confirmed via idempotency guard', cid);
+      const deliveredOrder = data.order;
 
-      // 4. Smart Provider Selection Engine
-      const { selectedDriver } = await SmartRoutingEngine.selectBestProvider(product, { correlationId: cid });
+      // Update Presentation State from Backend Response
+      setOrders(prev => [deliveredOrder, ...prev]);
 
-      // 5. FSM: WAITING_PROVIDER -> PROCESSING
-      OrderStateMachine.transition(newOrder, ORDER_STATES.WAITING_PROVIDER, `Routing to ${selectedDriver.name}`, cid);
-      OrderStateMachine.transition(newOrder, ORDER_STATES.PROCESSING, 'Executing provider API order delivery', cid);
+      // Deduct Provider Balance in local presentation state from Backend Response
+      setProvidersList(prev => prev.map(p => {
+        if (p.driver === deliveredOrder.providerCode || p.driver === 'RELOADLY' || p.id === 'prov-reloadly') {
+          const currentAvail = p.available_balance || p.balanceUSD || 1500;
+          const nextAvail = Math.max(0, currentAvail - (deliveredOrder.providerCostUSD || 8.50));
+          return { ...p, available_balance: nextAvail, balanceUSD: nextAvail };
+        }
+        return p;
+      }));
 
-      // 6. Provider Execution
-      const providerRes = await selectedDriver.createOrder({ orderId: newOrder.id, forceFail: orderDetails.simulateFail });
+      // Log Presentation Event
+      logSystemEvent({
+        category: 'ORDER',
+        level: 'INFO',
+        actor: user ? user.name : 'GUEST',
+        action: 'ORDER_DELIVERED_FROM_BACKEND',
+        correlationId: deliveredOrder.correlationId || cid,
+        details: {
+          orderId: deliveredOrder.id,
+          product: deliveredOrder.productTitle,
+          priceUSD: deliveredOrder.priceUSD,
+          providerCostUSD: deliveredOrder.providerCostUSD,
+          netProfitUSD: deliveredOrder.netProfitUSD
+        }
+      });
 
-      // 7. Code Reservation or Direct Delivery Confirmation
-      if (product.productType === 'VOUCHER_CODE' || product.productType === 'LICENSE_KEY') {
-        CodeReservationEngine.reserveCode(product.id, newOrder.id, cid);
-        CodeReservationEngine.confirmSale(newOrder.id, cid);
-      }
-
-      // 8. Financial Capture
-      if (orderDetails.paymentMethod === 'WALLET') {
-        DoubleEntryLedger.capture(currentUserId, totalUSD, newOrder.id, cid);
-        setUserWallet({ ...DoubleEntryLedger.getWallet(currentUserId) });
-      }
-
-      // 9. FSM: PROCESSING -> DELIVERED
-      OrderStateMachine.transition(newOrder, ORDER_STATES.DELIVERED, `Fulfilled by ${selectedDriver.name}`, cid);
-      newOrder.code = providerRes.deliveredPayload?.pinCode || 'DIRECT_TOPUP_FULFILLED';
-
-      setOrders(prev => [newOrder, ...prev]);
       clearCart();
 
-      // Emit Notification
+      // Emit UI Notification
       const newNotif = {
         id: `n-${Date.now()}`,
         category: 'orders',
-        title: { en: `Order ${newOrder.id} Delivered`, ar: `تم تسليم الطلب ${newOrder.id}` },
-        message: { en: `Order ${newOrder.id} completed. CID: ${cid}`, ar: `تم تلبية طلبك ${newOrder.id} بنجاح. معرف التتبع: ${cid}` },
+        title: { en: `Order ${deliveredOrder.id} Delivered`, ar: `تم تسليم الطلب ${deliveredOrder.id}` },
+        message: { en: `Order ${deliveredOrder.id} completed by Backend API. CID: ${deliveredOrder.correlationId}`, ar: `تم تلبية طلبك ${deliveredOrder.id} بنجاح من السيرفر. معرف التتبع: ${deliveredOrder.correlationId}` },
         timestamp: 'Just now',
         read: false,
         type: 'success'
@@ -654,27 +761,23 @@ export const AppProvider = ({ children }) => {
 
       addToast(
         lang === 'ar'
-          ? `تم تنفيذ الطلب ${newOrder.id} بنجاح! CID: ${cid}`
-          : `Order ${newOrder.id} delivered! CID: ${cid}`
+          ? `تم تنفيذ الطلب ${deliveredOrder.id} بنجاح من السيرفر! CID: ${deliveredOrder.correlationId}`
+          : `Order ${deliveredOrder.id} delivered from Server! CID: ${deliveredOrder.correlationId}`
       );
-      return newOrder;
+      return deliveredOrder;
 
     } catch (err) {
-      CategorizedLogger.log('ORDER', { correlationId: cid, orderId: newOrder.id, error: err.message });
-      
-      // Rollback Wallet Hold if applicable
-      if (orderDetails.paymentMethod === 'WALLET') {
-        DoubleEntryLedger.release(currentUserId, totalUSD, newOrder.id, cid);
-        setUserWallet({ ...DoubleEntryLedger.getWallet(currentUserId) });
-      }
-
-      // Move to DLQ
-      DLQManager.pushToDLQ(newOrder, err.message, cid);
-      newOrder.status = ORDER_STATES.FAILED;
-      setOrders(prev => [newOrder, ...prev]);
+      logSystemEvent({
+        category: 'SYSTEM',
+        level: 'ERROR',
+        actor: 'SYSTEM',
+        action: 'BACKEND_ORDER_FAILED',
+        correlationId: cid,
+        details: { error: err.message }
+      });
 
       addToast(
-        lang === 'ar' ? `فشل تنفيذ الطلب: ${err.message}` : `Order failed: ${err.message}`,
+        lang === 'ar' ? `فشل تنفيذ الطلب من السيرفر: ${err.message}` : `Backend order failed: ${err.message}`,
         'error'
       );
       throw err;
@@ -725,6 +828,9 @@ export const AppProvider = ({ children }) => {
         markNotificationAsRead: id => setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n)),
         markAllNotificationsAsRead: () => setNotifications(prev => prev.map(n => ({ ...n, read: true }))),
         clearNotifications: () => setNotifications([]),
+        categories,
+        activeCategories,
+        toggleCategoryStatus,
         products,
         setProducts,
         providersList,
@@ -738,6 +844,10 @@ export const AppProvider = ({ children }) => {
         addProvider,
         updateProvider,
         toggleProviderStatus,
+        featureFlags,
+        toggleFeatureFlag,
+        systemLogs,
+        logSystemEvent,
         toasts,
         addToast,
         removeToast

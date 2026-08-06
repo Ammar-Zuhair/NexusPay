@@ -15,6 +15,7 @@ import providersRoutes from './routes/providers.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import reloadlyRoutes from './routes/reloadly.routes.js';
+import reviewsRoutes from './routes/reviews.routes.js';
 import { runMigrations } from './db/migrate.js';
 
 dotenv.config();
@@ -44,6 +45,7 @@ app.use('/api/v1', providersRoutes);
 app.use('/api/v1', authRoutes);
 app.use('/api/v1', paymentsRoutes);
 app.use('/api/v1', reloadlyRoutes);
+app.use('/api/v1', reviewsRoutes);
 
 // Error Handler Middleware (Must be registered last)
 app.use(errorHandlerMiddleware);

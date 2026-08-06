@@ -1,14 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { MOCK_CATEGORIES, MOCK_GAMES } from '../data/mockData';
 import { useApp } from '../context/AppContext';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
 export const HomePage = () => {
-  const { lang, setActiveTab, setSelectedGameId } = useApp();
+  const { lang, setActiveTab, setSelectedGameId, activeCategories, products } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
+  const [dailyReviews, setDailyReviews] = useState([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+
+  const validCategories = activeCategories && activeCategories.length > 0 ? activeCategories : MOCK_CATEGORIES;
+  const activeCatIds = new Set(validCategories.map(c => c.id));
+  const catalogProducts = (products && products.length > 0) ? products : MOCK_GAMES;
+
+  // Fetch daily 10 random 5-star customer reviews from backend API
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDailyReviews = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/reviews/daily-5star`);
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.reviews) {
+            setDailyReviews(data.reviews);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch daily reviews:', err);
+      } finally {
+        if (isMounted) setIsLoadingReviews(false);
+      }
+    };
+
+    fetchDailyReviews();
+    return () => { isMounted = false; };
+  }, []);
 
   return (
     <main className="mt-20">
       
-      {/* Hero Section */}
+      {/* 🚀 Hero Section - Comprehensive Electronic & Digital Services */}
       <section className="relative overflow-hidden pt-2xl pb-2xl md:pt-2xl md:pb-2xl">
         <div className="max-w-container-max mx-auto px-gutter relative z-10 flex flex-col md:flex-row items-center gap-xl">
           
@@ -16,31 +48,31 @@ export const HomePage = () => {
           <div className="w-full md:w-3/5 text-center md:text-left rtl:md:text-right space-y-lg">
             <div className="inline-flex items-center px-md py-xs bg-primary-fixed text-on-primary-fixed rounded-full font-label-caps text-label-caps mb-md">
               <span className="material-symbols-outlined text-md mr-sm rtl:ml-sm" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
-              {lang === 'ar' ? 'شريك رسمي لألعاب الألعاب العالمية' : 'OFFICIAL PARTNER FOR GLOBAL GAMING'}
+              {lang === 'ar' ? 'منصة متكاملة لكافة الخدمات والمنتجات الرقمية' : 'ALL-IN-ONE DIGITAL & ELECTRONIC SERVICES'}
             </div>
 
             <h1 className="font-display-lg text-display-lg text-on-surface leading-tight">
               {lang === 'ar' ? (
                 <>
-                  شحن ألعابك المفضلة <span className="text-primary">فوراً وبأمان.</span>
+                  جميع الخدمات والبطاقات الرقمية <span className="text-primary">في مكان واحد.</span>
                 </>
               ) : (
                 <>
-                  Instant Level Up for Your <span className="text-primary">Digital Life.</span>
+                  All Your Digital & Electronic Services <span className="text-primary">In One Place.</span>
                 </>
               )}
             </h1>
 
             <h2 className="font-headline-lg text-headline-lg text-on-surface-variant font-arabic-body">
               {lang === 'ar'
-                ? 'اشحن ألعابك المفضلة واحصل على بطاقات الهدايا فوراً.'
-                : 'Top up your favorite games and get digital gift cards instantly.'}
+                ? 'اشتراكات البث والذكاء الاصطناعي، بطاقات الهدايا، البرامج والتراخيص، والمحافظ الرقمية.'
+                : 'Streaming & AI subscriptions, gift cards, software licenses, and digital top-ups.'}
             </h2>
 
             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto md:mx-0 font-arabic-body">
               {lang === 'ar' 
-                ? 'NexusPay هو المتجر الرقمي الأكثر سرعة وأماناً لشحن الألعاب، وبطاقات الهدايا، والاشتراكات الرقمية بتغطية عالمية.' 
-                : 'NexusPay is the fastest, most reliable marketplace for game top-ups, gift cards, and digital subscriptions with worldwide coverage.'}
+                ? 'منصتك الشاملة لشراء وتفعيل كافة المنتجات الإلكترونية والخدمات الرقمية والبطاقات فورياً وبأمان كامل.' 
+                : 'Your comprehensive platform to buy and activate all electronic services, digital cards, and subscriptions instantly.'}
             </p>
 
             {/* Search Bar */}
@@ -48,7 +80,7 @@ export const HomePage = () => {
               <span className="material-symbols-outlined text-outline ml-md rtl:mr-md">search</span>
               <input
                 className="w-full bg-transparent border-none focus:ring-0 font-body-lg text-on-surface py-md"
-                placeholder={lang === 'ar' ? 'ابحث عن ببجي، ستيم، نيتفليكس...' : 'Search for PUBG, Steam, Netflix...'}
+                placeholder={lang === 'ar' ? 'ابحث عن نيتفليكس، ستيم، بلايستيشن، شحن...' : 'Search for Netflix, Steam, PlayStation, AI...'}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -68,16 +100,16 @@ export const HomePage = () => {
               
               {/* Glassmorphic Card 1 */}
               <div 
-                onClick={() => { setSelectedGameId('pubg-mobile'); setActiveTab('product'); }}
+                onClick={() => setActiveTab('browse')}
                 className="absolute top-0 right-0 w-64 h-80 glass rounded-[16px] shadow-2xl p-lg transform rotate-3 hover:rotate-0 transition-transform duration-500 z-20 cursor-pointer"
               >
                 <div className="w-full h-40 rounded-lg mb-md bg-gradient-to-br from-primary to-secondary-fixed-dim flex items-center justify-center">
                   <span className="material-symbols-outlined text-white text-[64px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    videogame_asset
+                    smart_toy
                   </span>
                 </div>
-                <h4 className="font-title-md text-title-md text-on-surface">Game Top-up</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-sm">Instant delivery to your game account ID.</p>
+                <h4 className="font-title-md text-title-md text-on-surface">{lang === 'ar' ? 'الذكاء الاصطناعي والاشتراكات' : 'AI & Subscriptions'}</h4>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-sm">{lang === 'ar' ? 'ChatGPT, Netflix, Spotify وتطبيقات العمل.' : 'ChatGPT, Netflix, Spotify & pro apps.'}</p>
               </div>
 
               {/* Glassmorphic Card 2 */}
@@ -92,8 +124,8 @@ export const HomePage = () => {
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7eGVDq_xAwLG4EFRC_vSrFrZirB_1XGfFsMAaiaL8xJblXpic-yJzGZW6idJn38FQLI_Hf9OaEYHTn6zk99oftfK067bK8ybhRKZz-CgAh3yk1GHGocYNEgQukIwJr3ofuq1JjAulsN6U6-EIbLJYTBOuSYxqA-9ZMOemjDLvg3cJMCs--txrymVN7cLayWIMXpiZmz5QrCKDE2E1x-_EqkLOQZMgz_93YN8Ba8DKJ9-ER30l80cW"
                   />
                 </div>
-                <h4 className="font-title-md text-title-md text-on-surface">Digital Cards</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-sm">Netflix, Steam, PlayStation & more.</p>
+                <h4 className="font-title-md text-title-md text-on-surface">{lang === 'ar' ? 'البطاقات الإلكترونية والشحن' : 'Digital Cards & Top-ups'}</h4>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-sm">{lang === 'ar' ? 'بطاقات هدايا، تراخيص برامج وشحن خدمات.' : 'Gift cards, licenses & service top-ups.'}</p>
               </div>
 
             </div>
@@ -102,19 +134,19 @@ export const HomePage = () => {
         </div>
       </section>
 
-      {/* Featured Games Grid */}
+      {/* ─── Categories Grid ─── */}
       <section className="py-2xl bg-surface-container-low">
         <div className="max-w-container-max mx-auto px-gutter">
           <div className="flex items-end justify-between mb-xl">
             <div>
               <h2 className="font-headline-lg text-headline-lg text-on-surface">
-                {lang === 'ar' ? 'الألعاب المميزة' : 'Featured Games'}
+                {lang === 'ar' ? 'تصفح حسب الفئة' : 'Browse by Category'}
               </h2>
               <p className="font-body-lg text-body-lg text-on-surface-variant">
-                {lang === 'ar' ? 'شحن رسمي لأشهر الألعاب في العالم' : "Official top-ups for the world's biggest titles."}
+                {lang === 'ar' ? 'خدمات إلكترونية وشاملة لكل احتياجاتك اليومية' : 'Comprehensive digital services for all your needs.'}
               </p>
             </div>
-            <button 
+            <button
               onClick={() => setActiveTab('browse')}
               className="font-title-md text-title-md text-primary flex items-center gap-xs hover:underline underline-offset-4 decoration-2"
             >
@@ -123,143 +155,38 @@ export const HomePage = () => {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-md">
-            
-            {/* Game 1: PUBG Mobile */}
-            <div 
-              onClick={() => { setSelectedGameId('pubg-mobile'); setActiveTab('product'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high relative">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="PUBG Mobile" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKH67dvduWDSZyGuuEV1OZoAxR3-N8Hii_KMKO62k43SStE0dyKWxdaDcqR6tsDQHlQAQYmJrQrHgVVNqnPdn6OOvW2YzKAPFI9qmaXVxwc_0h_iPAK3uqA2nBYltLTDujS7M_PRXEqYW7pS4aECW_DwUUxH0dwGXnDUWSi45WgFx9n2biKG_Ymc1zRWuJWqM9k7VSfE5yP3tFufUDx-VriXNd-D9NKWKuQStXBhwGiVn2n7UG7NRc" 
-                />
-                <div className="absolute top-sm right-sm bg-error/90 text-on-error px-sm py-xs rounded-lg font-label-caps text-label-caps">-15%</div>
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">PUBG Mobile</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Global UC</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$0.99 - $99.99</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
-            {/* Game 2: Free Fire */}
-            <div 
-              onClick={() => { setSelectedGameId('free-fire'); setActiveTab('product'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="Free Fire" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuACzMb2NxDqNiYQBkwV-KyG6QrrfSKW8Cq5avppu3g_xZjrDpbC_P8KbG3lURSs47wncNdXMtASKOoHqHOpW8fGsmxDqfjTNpAZKevd5rmE7uZqB6MyFpc18NRylWXbVhbBcdvMOijFKSpSMeAdoGYm4dnW4SgwoMjSXSkS0lv547izFxgSaDMFvz8vQZqzYObIViosiwSpsq-nh52pRYKXlGGOZtIRlwWg906G3J3HgxFIZaVagmsg" 
-                />
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">Free Fire</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Diamonds</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$1.10</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
-            {/* Game 3: Roblox */}
-            <div 
-              onClick={() => { setSelectedGameId('free-fire'); setActiveTab('browse'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="Roblox" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuCLfLud-eqQL9b_SJKCnZU3iNmDiBxQc-7vdRJ1WN5AyyYOkbpw3sCFqud9vxyYtWWZN75TGz3DgPt5gzLqQP_-Dl9zJuH764JEHhQ9CC_DuInsBNBiBmJPntu0IgKO-uoU7EKLODUsgIXjnE6CtoobV2BEbneDHewoH7peVvTJ-fz_XE8qAF5OjbUOO3QEg_6qxrTA6CN91H6W574n-AiK9cUoAqYjitW7eKudkuki5QDYAlWXmsYe" 
-                />
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">Roblox</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Robux</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$5.00+</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
-            {/* Game 4: PlayStation */}
-            <div 
-              onClick={() => { setSelectedGameId('steam-giftcard'); setActiveTab('product'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="PlayStation" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfD-fErV-crEYxP8Kma5E9S-jsazRP0nMhqj_5HYBN82kk5_SEQiOcssV6UAi_76ttf7Paw30vKf_NJLJeNz_71t2MGsGVwwbOTZn0HmG8XR9BISywR-FKxuJ1D-JdIc_USitLJrrRL949zOz_gsEfLk_ovKrgwIvEZ3lmcSA_qqZeiaPRvIN1-jVuhAsneJAoUTaC-8LK4RMMD2IysDilKfFUP_bEkXQqbgYcVl_4bFBw6erCcfS6" 
-                />
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">PlayStation</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Store Credit</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$10.00+</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
-            {/* Game 5: Steam */}
-            <div 
-              onClick={() => { setSelectedGameId('steam-giftcard'); setActiveTab('product'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="Steam" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuCjtv8Q3oWnruiNtpHyutjoe_wjnYoZnjMi9CJLzWq31mPBIhjJdGLXmtTvEodM0dWskATkeW_zH5QVUP_w6uEi62s4_AsSp1gWyJFpB3O0dWODla05VpbdnJETCjzhMErUTRgWbeyJwqcl6ZOBC9wLYclJwrFvohqPrPkC7IyBqPyLfbHAgyKvCMc5pe5ro3GUViUJjWOHi_vmPeIkSnxMhz5xMU-51oN-YPM21P_O1qDAMtYnQVT3" 
-                />
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">Steam</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Wallet Code</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$5.00+</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
-            {/* Game 6: Netflix */}
-            <div 
-              onClick={() => { setSelectedGameId('netflix-sub'); setActiveTab('product'); }}
-              className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden mb-md bg-surface-container-high">
-                <img 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                  alt="Netflix" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-JpcsmwtCuzTZnBcRLZoIIfjJjegU9cGtNFvcQO5WbdhQjRdsT9mSr860oHdLKzkp1GDELmCz4GEGbrIgwYQpKnY4amwNQIDGmKcqfJzuhKQExTvdCTI7ZdH2s8PWF-bhmP-jbO-YI-MHpJPi8wV4jDnc2a9r1dCFAb83fpqNWIj_2LMvVzWFi7AT2ctmD3nCGRHYwY_V6yMbhs_F3o4fAB54wNrs4tqVo1WgUTIxI0S00yTgP5-_" 
-                />
-              </div>
-              <h3 className="font-title-md text-title-md text-on-surface truncate">Netflix</h3>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">Subscriptions</p>
-              <div className="mt-md flex items-center justify-between">
-                <span className="font-title-md text-primary">$15.00+</span>
-                <span className="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">add_circle</span>
-              </div>
-            </div>
-
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-md">
+            {validCategories.map((cat) => {
+              const label = cat.title[lang] || cat.title.en;
+              const count = catalogProducts.filter(p => p.categoryId === cat.id).length;
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => setActiveTab('browse')}
+                  className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg hover:border-primary/40 transition-all duration-300 cursor-pointer text-center"
+                >
+                  <div className="text-4xl mb-md">{cat.icon}</div>
+                  <h3 className="font-title-sm text-title-sm text-on-surface leading-snug">{label}</h3>
+                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-xs">
+                    {count} {lang === 'ar' ? 'خدمة/منتج' : 'services'}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* Popular Gift Cards Slider */}
+      {/* Popular Products Slider */}
       <section className="py-2xl">
         <div className="max-w-container-max mx-auto px-gutter">
           <div className="flex items-end justify-between mb-xl">
             <div>
               <h2 className="font-headline-lg text-headline-lg text-on-surface">
-                {lang === 'ar' ? 'بطاقات الهدايا الشائعة' : 'Popular Gift Cards'}
+                {lang === 'ar' ? 'المنتجات والخدمات الأكثر شعبية' : 'Most Popular Digital Products'}
               </h2>
               <p className="font-body-lg text-body-lg text-on-surface-variant">
-                {lang === 'ar' ? 'متوفرة لجميع المناطق والمتاجر العالمية.' : 'Global regions available for every store.'}
+                {lang === 'ar' ? 'أبرز الخدمات والاشتراكات والبطاقات الإلكترونية.' : 'Top electronic services & digital products.'}
               </p>
             </div>
             <div className="flex gap-sm">
@@ -273,84 +200,60 @@ export const HomePage = () => {
           </div>
 
           <div className="flex overflow-x-auto gap-lg pb-lg custom-scrollbar snap-x">
-            
-            {/* iTunes / Apple */}
-            <div className="min-w-[280px] snap-start glass border-none rounded-[16px] overflow-hidden shadow-sm hover:shadow-md transition-all">
-              <div className="h-32 bg-primary flex items-center justify-center">
-                <span className="font-display-lg text-on-primary">iTunes</span>
-              </div>
-              <div className="p-md space-y-sm">
-                <div className="flex justify-between items-center">
-                  <span className="font-label-caps text-label-caps text-on-surface-variant">REGION: USA</span>
-                  <span className="px-sm py-xs bg-tertiary-container/10 text-tertiary-container rounded-full text-[10px] font-bold">IN STOCK</span>
+            {catalogProducts.filter(p => p.isPopular && (!p.categoryId || activeCatIds.has(p.categoryId))).slice(0, 8).map(product => {
+              const catObj = validCategories.find(c => c.id === product.categoryId);
+              const titleText = typeof product.title === 'object' ? (product.title[lang] || product.title.en) : product.title;
+              const minPkg = product.packages?.[0];
+              return (
+                <div
+                  key={product.id}
+                  className="min-w-[260px] snap-start glass border-none rounded-[16px] overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer"
+                  onClick={() => { setSelectedGameId(product.id); setActiveTab('product'); }}
+                >
+                  <div className="h-32 bg-surface-container-high flex items-center justify-center overflow-hidden relative">
+                    {product.image ? (
+                      <img src={product.image} alt={titleText} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-5xl">{catObj?.icon || '📦'}</span>
+                    )}
+                    {product.badge && (
+                      <span className="absolute top-sm right-sm bg-primary text-on-primary px-sm py-xs rounded-full font-label-caps text-label-caps text-[10px]">
+                        {product.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-md space-y-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="font-label-caps text-label-caps text-on-surface-variant text-[10px]">
+                        {catObj?.icon} {catObj ? (catObj.title[lang] || catObj.title.en) : ''}
+                      </span>
+                      <span className="px-sm py-xs bg-tertiary-container/10 text-tertiary rounded-full text-[10px] font-bold">متوفر</span>
+                    </div>
+                    <h4 className="font-title-md text-title-md text-on-surface">{titleText}</h4>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant">
+                      {lang === 'ar' ? 'من' : 'From'} ${minPkg?.priceUSD?.toFixed(2) || product.minPriceUSD?.toFixed(2) || '—'}
+                    </p>
+                    <button className="w-full py-sm bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all rounded-xl font-title-sm text-title-sm">
+                      {lang === 'ar' ? 'اشترِ الآن' : 'Buy Now'}
+                    </button>
+                  </div>
                 </div>
-                <h4 className="font-title-md text-title-md">Apple Gift Card</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">Digital code delivered instantly to your email.</p>
-                <button onClick={() => { setSelectedGameId('apple-giftcard'); setActiveTab('product'); }} className="w-full py-sm bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all rounded-xl font-title-md">Buy Now</button>
-              </div>
-            </div>
-
-            {/* XBOX */}
-            <div className="min-w-[280px] snap-start glass border-none rounded-[16px] overflow-hidden shadow-sm hover:shadow-md transition-all">
-              <div className="h-32 bg-[#2d3133] flex items-center justify-center">
-                <span className="font-display-lg text-[#acedff]">XBOX</span>
-              </div>
-              <div className="p-md space-y-sm">
-                <div className="flex justify-between items-center">
-                  <span className="font-label-caps text-label-caps text-on-surface-variant">REGION: GLOBAL</span>
-                  <span className="px-sm py-xs bg-tertiary-container/10 text-tertiary-container rounded-full text-[10px] font-bold">IN STOCK</span>
-                </div>
-                <h4 className="font-title-md text-title-md">Game Pass Ultimate</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">Get 100+ high-quality games on PC and console.</p>
-                <button onClick={() => { setSelectedGameId('xbox-gamepass'); setActiveTab('product'); }} className="w-full py-sm bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all rounded-xl font-title-md">Buy Now</button>
-              </div>
-            </div>
-
-            {/* Spotify */}
-            <div className="min-w-[280px] snap-start glass border-none rounded-[16px] overflow-hidden shadow-sm hover:shadow-md transition-all">
-              <div className="h-32 bg-[#4edea3] flex items-center justify-center">
-                <span className="font-display-lg text-on-tertiary">Spotify</span>
-              </div>
-              <div className="p-md space-y-sm">
-                <div className="flex justify-between items-center">
-                  <span className="font-label-caps text-label-caps text-on-surface-variant">REGION: MENA</span>
-                  <span className="px-sm py-xs bg-tertiary-container/10 text-tertiary-container rounded-full text-[10px] font-bold">IN STOCK</span>
-                </div>
-                <h4 className="font-title-md text-title-md">Spotify Premium</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">Ad-free music listening with offline mode.</p>
-                <button onClick={() => { setSelectedGameId('spotify-sub'); setActiveTab('product'); }} className="w-full py-sm bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all rounded-xl font-title-md">Buy Now</button>
-              </div>
-            </div>
-
-            {/* Google Play */}
-            <div className="min-w-[280px] snap-start glass border-none rounded-[16px] overflow-hidden shadow-sm hover:shadow-md transition-all">
-              <div className="h-32 bg-[#ba1a1a] flex items-center justify-center">
-                <span className="font-display-lg text-white">Google</span>
-              </div>
-              <div className="p-md space-y-sm">
-                <div className="flex justify-between items-center">
-                  <span className="font-label-caps text-label-caps text-on-surface-variant">REGION: GLOBAL</span>
-                  <span className="px-sm py-xs bg-tertiary-container/10 text-tertiary-container rounded-full text-[10px] font-bold">IN STOCK</span>
-                </div>
-                <h4 className="font-title-md text-title-md">Play Store Credit</h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">The easiest way to pay for apps and games.</p>
-                <button onClick={() => { setSelectedGameId('google-play'); setActiveTab('product'); }} className="w-full py-sm bg-surface-container-high hover:bg-primary hover:text-on-primary transition-all rounded-xl font-title-md">Buy Now</button>
-              </div>
-            </div>
-
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* Trust Signals Section */}
+
+      {/* Genuine Trust Commitments Section (No Fake Stats) */}
       <section className="py-2xl bg-primary text-on-primary overflow-hidden relative">
         <div className="max-w-container-max mx-auto px-gutter relative z-10">
           <div className="text-center mb-2xl">
             <h2 className="font-headline-lg text-headline-lg mb-md">
-              {lang === 'ar' ? 'موثوق من ملايين اللاعبين حول العالم' : 'Trusted by Millions Worldwide'}
+              {lang === 'ar' ? 'التزامنا وجودة خدماتنا الإلكترونية' : 'Our Digital Excellence Commitment'}
             </h2>
             <p className="font-body-lg text-body-lg opacity-80 max-w-2xl mx-auto">
-              {lang === 'ar' ? 'نوفر معاملات رقمية آمنة وسريعة منذ عام 2018.' : 'Providing safe and secure digital transactions since 2018.'}
+              {lang === 'ar' ? 'منصة حديثة، آمنة ومضمونة لشراء وتفعيل كافة خدماتك وبطاقاتك الرقمية.' : 'A modern, secure, and transparent marketplace for all your digital card and service needs.'}
             </p>
           </div>
 
@@ -359,11 +262,11 @@ export const HomePage = () => {
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                 <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>bolt</span>
               </div>
-              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'تسليم فوري' : 'Instant Delivery'}</h3>
+              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'تنفيذ وتسليم فوري' : 'Instant Delivery'}</h3>
               <p className="font-body-sm text-body-sm opacity-80 font-arabic-body">
                 {lang === 'ar' 
-                  ? 'يتم إرسال الأكواد وشدات الألعاب فوراً إلى بريدك الإلكتروني أو حسابك بعد السداد المباشر.' 
-                  : 'Codes are sent immediately to your email or game account upon successful payment.'}
+                  ? 'يتم إرسال أكواد البطاقات الإلكترونية وتفاصيل التفعيل آلياً وفورياً فور تأكيد عملية الشراء.' 
+                  : 'Digital codes and subscription details are delivered immediately after successful payment.'}
               </p>
             </div>
 
@@ -371,11 +274,11 @@ export const HomePage = () => {
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                 <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>security</span>
               </div>
-              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'دفع آمن 100%' : 'Secure Payments'}</h3>
+              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'معاملات آمنة ومفرّة' : 'Secure Transactions'}</h3>
               <p className="font-body-sm text-body-sm opacity-80 font-arabic-body">
                 {lang === 'ar'
-                  ? 'نستخدم أعلى معايير التشفير SSL وبوابات الدفع الرسمية المعتمدة لحماية جميع معاملاتك.'
-                  : 'We use high-level SSL encryption and industry-standard payment gateways for your safety.'}
+                  ? 'نعتمد أعلى معايير التشفير وبوابات الدفع الرسمية لحماية بياناتك وأموالك.'
+                  : 'We use robust SSL encryption and official payment gateways for your maximum security.'}
               </p>
             </div>
 
@@ -383,105 +286,87 @@ export const HomePage = () => {
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                 <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>support_agent</span>
               </div>
-              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'دعم 24/7' : '24/7 Support'}</h3>
+              <h3 className="font-title-md text-title-md">{lang === 'ar' ? 'دعم فني متواصل' : 'Dedicated Customer Support'}</h3>
               <p className="font-body-sm text-body-sm opacity-80 font-arabic-body">
                 {lang === 'ar'
-                  ? 'فريق الدعم الفني متواجد على مدار الساعة لمساعدتك في أي استفسارات أو عمليات شراء.'
-                  : 'Our dedicated team is always here to help you with any purchase questions or issues.'}
+                  ? 'فريق الدعم الفني جاهز لمساعدتك والإجابة على كافة استفساراتك حول الخدمة.'
+                  : 'Our customer support team is available to assist you with any questions or help needed.'}
               </p>
-            </div>
-          </div>
-
-          <div className="mt-2xl pt-2xl border-t border-white/10 grid grid-cols-2 md:grid-cols-4 gap-lg text-center">
-            <div>
-              <div className="text-[40px] font-bold">5M+</div>
-              <div className="font-label-caps text-label-caps opacity-70 font-arabic-body">{lang === 'ar' ? 'لاعب سعيد' : 'Happy Users'}</div>
-            </div>
-            <div>
-              <div className="text-[40px] font-bold">12M+</div>
-              <div className="font-label-caps text-label-caps opacity-70 font-arabic-body">{lang === 'ar' ? 'عملية شحن ناجحة' : 'Transactions'}</div>
-            </div>
-            <div>
-              <div className="text-[40px] font-bold">50+</div>
-              <div className="font-label-caps text-label-caps opacity-70 font-arabic-body">{lang === 'ar' ? 'طريقة دفع آمنة' : 'Payment Methods'}</div>
-            </div>
-            <div>
-              <div className="text-[40px] font-bold">190+</div>
-              <div className="font-label-caps text-label-caps opacity-70 font-arabic-body">{lang === 'ar' ? 'دولة حول العالم' : 'Countries Covered'}</div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Customer Reviews Section */}
+      {/* 🌟 Daily 10 Verified Customer Reviews (5-Stars Only, Refreshed Daily) */}
       <section className="py-2xl bg-surface">
         <div className="max-w-container-max mx-auto px-gutter">
-          <h2 className="font-headline-lg text-headline-lg text-on-surface text-center mb-xl">
-            {lang === 'ar' ? 'آراء واقتباسات اللاعبين' : 'What Gamers Say'}
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-lg">
-            
-            <div className="bg-surface-container-low p-xl rounded-[16px] space-y-md border border-outline-variant/20 shadow-sm">
-              <div className="flex text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <span key={i} className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-                ))}
-              </div>
-              <p className="font-body-lg text-body-lg text-on-surface-variant italic font-arabic-body">
-                {lang === 'ar' 
-                  ? '"NexusPay أسرع منصة جربتها في حياتي، وصلني رصيد شدات ببجي في حسابي خلال 10 ثوانٍ فقط من الدفع."' 
-                  : '"NexusPay is literally the fastest service I\'ve ever used. My PUBG UC was in my account within 10 seconds of paying."'}
-              </p>
-              <div className="flex items-center gap-md">
-                <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center font-bold text-on-primary-container">أ م</div>
-                <div>
-                  <h4 className="font-title-md text-title-md">{lang === 'ar' ? 'أحمد م.' : 'Ahmed M.'}</h4>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant">{lang === 'ar' ? 'لاعب محترف' : 'Competitive Player'}</p>
-                </div>
-              </div>
+          <div className="text-center mb-xl space-y-sm">
+            <div className="inline-flex items-center gap-1.5 px-md py-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full font-bold text-xs">
+              <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
+              {lang === 'ar' ? 'تقييمات حقيقية بعد الشراء' : 'Verified Post-Purchase Reviews'}
             </div>
-
-            <div className="bg-surface-container-low p-xl rounded-[16px] space-y-md border border-outline-variant/20 shadow-sm">
-              <div className="flex text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <span key={i} className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-                ))}
-              </div>
-              <p className="font-body-lg text-body-lg text-on-surface-variant italic font-arabic-body">
-                {lang === 'ar'
-                  ? '"أعجبتني كثرة طرق الدفع المتوفرة وتنوع العملات المحلية مما جعل التسوق سهلاً جداً ومريحاً."'
-                  : '"Love the variety of payment methods. Being able to pay with local options in my country makes it so convenient."'}
-              </p>
-              <div className="flex items-center gap-md">
-                <div className="w-12 h-12 rounded-full bg-secondary-container flex items-center justify-center font-bold text-on-secondary-container">ج ل</div>
-                <div>
-                  <h4 className="font-title-md text-title-md">{lang === 'ar' ? 'جيسيكا ل.' : 'Jessica L.'}</h4>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant">{lang === 'ar' ? 'لاعبة هاوية' : 'Casual Gamer'}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-surface-container-low p-xl rounded-[16px] space-y-md border border-outline-variant/20 shadow-sm">
-              <div className="flex text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <span key={i} className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-                ))}
-              </div>
-              <p className="font-body-lg text-body-lg text-on-surface-variant italic font-arabic-body">
-                {lang === 'ar'
-                  ? '"دعم فني ممتاز وسريع جداً، كان لدي استفسار حول المنطقة وحلوه لي عبر المحادثة المباشرة خلال دقائق."'
-                  : '"Great customer support. I had a small issue with my region and they fixed it through live chat in minutes."'}
-              </p>
-              <div className="flex items-center gap-md">
-                <div className="w-12 h-12 rounded-full bg-tertiary-container flex items-center justify-center font-bold text-on-tertiary-container">س ك</div>
-                <div>
-                  <h4 className="font-title-md text-title-md">{lang === 'ar' ? 'سامي ك.' : 'Sami K.'}</h4>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant">{lang === 'ar' ? 'صانع محتوى وبثوث' : 'Pro Streamer'}</p>
-                </div>
-              </div>
-            </div>
-
+            <h2 className="font-headline-lg text-headline-lg text-on-surface">
+              {lang === 'ar' ? 'آراء وتقييمات العملاء اليومية' : 'Daily 5-Star Customer Reviews'}
+            </h2>
+            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
+              {lang === 'ar' 
+                ? 'يتم عرض 10 تقييمات بـ 5 نجوم عشوائياً يومياً من آراء وتعليقات المستخدمين الحقيقيين بعد الشراء' 
+                : 'Displaying 10 daily random 5-star reviews from verified buyers.'}
+            </p>
           </div>
+
+          {isLoadingReviews ? (
+            <div className="text-center py-12 text-on-surface-variant">
+              <span className="material-symbols-outlined animate-spin text-3xl">sync</span>
+              <p className="mt-2 text-xs font-bold">{lang === 'ar' ? 'جاري تحميل التقييمات...' : 'Loading customer reviews...'}</p>
+            </div>
+          ) : dailyReviews && dailyReviews.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-lg">
+              {dailyReviews.map((rev, index) => (
+                <div key={rev.id || index} className="bg-surface-container-low p-xl rounded-[20px] space-y-md border border-outline-variant/30 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="flex justify-between items-center">
+                    <div className="flex text-amber-400">
+                      {[...Array(rev.rating || 5)].map((_, i) => (
+                        <span key={i} className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-on-surface-variant/70 font-mono">
+                      {rev.created_at ? new Date(rev.created_at).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US') : ''}
+                    </span>
+                  </div>
+
+                  <p className="font-body-lg text-body-lg text-on-surface leading-relaxed italic font-arabic-body">
+                    "{rev.comment}"
+                  </p>
+
+                  <div className="flex items-center gap-md pt-xs border-t border-outline-variant/10">
+                    <div className="w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-sm shrink-0">
+                      {(rev.reviewer_name || 'ع')[0]}
+                    </div>
+                    <div>
+                      <h4 className="font-title-sm text-title-sm text-on-surface font-bold">{rev.reviewer_name}</h4>
+                      <p className="font-body-sm text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
+                        <span className="material-symbols-outlined text-xs">check_circle</span>
+                        {lang === 'ar' ? 'مشتري معتمد' : 'Verified Buyer'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 text-center bg-surface-container-low rounded-2xl border border-outline-variant/30 max-w-md mx-auto space-y-3">
+              <span className="material-symbols-outlined text-4xl text-amber-400" style={{ fontVariationSettings: "'FILL' 1" }}>reviews</span>
+              <h3 className="font-title-md text-title-md text-on-surface">
+                {lang === 'ar' ? 'لا توجد تقييمات بعد' : 'No Reviews Yet'}
+              </h3>
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                {lang === 'ar' 
+                  ? 'كن أول من يشارك تجربته وتقييمه للموقع بعد إتمام عمليتك في المنصة!' 
+                  : 'Be the first to leave a review after completing your purchase!'}
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

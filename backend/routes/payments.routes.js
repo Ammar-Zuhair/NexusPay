@@ -156,4 +156,180 @@ router.post('/payments/topup', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/payments/paypal/config
+ * Returns client_id for PayPal SDK initialization
+ */
+router.get('/payments/paypal/config', (req, res) => {
+  res.json({
+    clientId: process.env.PAYPAL_CLIENT_ID || 'sb',
+    mode: process.env.PAYPAL_MODE || 'sandbox'
+  });
+});
+
+/**
+ * POST /api/v1/payments/paypal/create-order
+ * Creates a PayPal Order via official PayPal REST API v2
+ */
+router.post('/payments/paypal/create-order', async (req, res, next) => {
+  try {
+    const { amountUSD, currency = 'USD', items = [] } = req.body;
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    const mode = process.env.PAYPAL_MODE || 'sandbox';
+
+    const baseUrl = mode === 'live' 
+      ? 'https://api-m.paypal.com' 
+      : 'https://api-m.sandbox.paypal.com';
+
+    const amount = parseFloat(amountUSD || 9.99).toFixed(2);
+
+    // Format item details for PayPal checkout window display
+    const paypalItems = Array.isArray(items) && items.length > 0
+      ? items.map(i => ({
+          name: String(i.title || i.productTitle || 'Digital Product').substring(0, 127),
+          unit_amount: {
+            currency_code: currency,
+            value: parseFloat(i.priceUSD || 9.99).toFixed(2)
+          },
+          quantity: String(i.quantity || 1),
+          category: 'DIGITAL_GOODS'
+        }))
+      : [{
+          name: 'NexusPay Digital Order',
+          unit_amount: { currency_code: currency, value: amount },
+          quantity: '1',
+          category: 'DIGITAL_GOODS'
+        }];
+
+    const itemsSum = paypalItems.reduce((acc, i) => acc + (parseFloat(i.unit_amount.value) * parseInt(i.quantity, 10)), 0).toFixed(2);
+
+    if (clientId && clientSecret) {
+      const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${authHeader}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials'
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) {
+        throw new Error(tokenData.error_description || 'Failed to authenticate with PayPal');
+      }
+
+      const orderRes = await fetch(`${baseUrl}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenData.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          intent: 'CAPTURE',
+          purchase_units: [{
+            amount: {
+              currency_code: currency,
+              value: amount
+            },
+            description: 'NexusPay Digital Games & Subscriptions Order'
+          }]
+        })
+      });
+      const orderData = await orderRes.json();
+      if (!orderRes.ok) {
+        throw new Error(orderData.message || 'Failed to create PayPal order');
+      }
+
+      const approvalUrl = orderData.links?.find(l => l.rel === 'approve')?.href;
+      return res.json({
+        id: orderData.id,
+        status: orderData.status,
+        approvalUrl,
+        mode: 'LIVE_PAYPAL'
+      });
+    }
+
+    // Sandbox Fallback
+    const simulatedOrderId = `PAYPAL-ORD-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    res.json({
+      id: simulatedOrderId,
+      status: 'CREATED',
+      approvalUrl: `https://www.sandbox.paypal.com/checkoutnow?token=${simulatedOrderId}`,
+      mode: 'SANDBOX_SIMULATED',
+      amountUSD: amount
+    });
+
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/payments/paypal/capture-order
+ * Captures payment for an approved PayPal Order
+ */
+router.post('/payments/paypal/capture-order', async (req, res, next) => {
+  try {
+    const { orderId } = req.body;
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    const mode = process.env.PAYPAL_MODE || 'sandbox';
+
+    const baseUrl = mode === 'live' 
+      ? 'https://api-m.paypal.com' 
+      : 'https://api-m.sandbox.paypal.com';
+
+    if (!orderId) {
+      return res.status(400).json({ error: 'PayPal orderId is required' });
+    }
+
+    if (clientId && clientSecret) {
+      const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${authHeader}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials'
+      });
+      const tokenData = await tokenRes.json();
+
+      const captureRes = await fetch(`${baseUrl}/v2/checkout/orders/${orderId}/capture`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenData.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const captureData = await captureRes.json();
+      if (!captureRes.ok) {
+        throw new Error(captureData.message || 'Failed to capture PayPal payment');
+      }
+
+      return res.json({
+        success: true,
+        orderId,
+        status: captureData.status,
+        captureId: captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id || orderId,
+        payer: captureData.payer,
+        message: 'PayPal payment captured successfully'
+      });
+    }
+
+    res.json({
+      success: true,
+      orderId,
+      status: 'COMPLETED',
+      captureId: `CAP-${Date.now()}`,
+      payer: { email_address: 'sandbox.payer@example.com', name: { given_name: 'PayPal User' } },
+      message: 'PayPal payment captured successfully'
+    });
+
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
