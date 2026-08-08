@@ -3440,7 +3440,7 @@ export const AdminDashboardPage = () => {
             </div>
 
           </div>
-        </div>
+        
       )}
 
       {/* MODAL: MULTI-ITEM ORDER ITEMS LIST */}
