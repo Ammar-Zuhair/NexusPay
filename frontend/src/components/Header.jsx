@@ -79,6 +79,8 @@ export const Header = () => {
   const [passwordInput, setPasswordInput]   = useState('');
   const [confirmPwInput, setConfirmPwInput] = useState('');
   const [countryInput, setCountryInput]     = useState('YE');
+  const [phoneInput, setPhoneInput]         = useState('');
+  const [countryCodeInput, setCountryCodeInput] = useState('+967');
   const [showPassword, setShowPassword]     = useState(false);
   const [showConfirmPw, setShowConfirmPw]   = useState(false);
   const [authError, setAuthError]           = useState('');
@@ -181,7 +183,7 @@ export const Header = () => {
         const res = await fetch(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: nameInput || 'مستخدم جديد', email: emailInput, password: passwordInput, countryCode: countryInput })
+          body: JSON.stringify({ name: nameInput || 'مستخدم جديد', email: emailInput, password: passwordInput, phone: phoneInput, countryCode: countryCodeInput || '+967' })
         });
         const data = await res.json();
         if (res.ok && data.requiresOtp) {

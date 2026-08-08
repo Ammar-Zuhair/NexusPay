@@ -26,10 +26,20 @@ export const UserDashboardPage = () => {
     formatCurrency, 
     addToast,
     openTopUpModal,
+    updateUserProfile,
     depositRequests = []
   } = useApp();
 
   const [copiedId, setCopiedId] = useState(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    name: user?.name || '',
+    phone: user?.phone || user?.phone_number || '',
+    countryCode: user?.countryCode || '+967',
+    currentPassword: '',
+    newPassword: ''
+  });
 
   const copyCode = (code, id) => {
     navigator.clipboard.writeText(code);
@@ -42,7 +52,19 @@ export const UserDashboardPage = () => {
     openTopUpModal();
   };
 
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    setIsUpdatingProfile(true);
+    const success = await updateUserProfile(profileForm);
+    setIsUpdatingProfile(false);
+    if (success) {
+      setShowProfileModal(false);
+    }
+  };
+
   const myDepositRequests = depositRequests.filter(r => r.userId === user?.id || r.userEmail === user?.email);
+
+  const numericUserId = user ? (user.numericId || user.id?.replace(/\D/g, '') || '784920') : 'N/A';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 mt-12">
@@ -52,19 +74,36 @@ export const UserDashboardPage = () => {
         <div className="space-y-2 relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-cyan-300 text-xs font-bold border border-cyan-500/30">
             <ShieldCheck className="w-4 h-4 text-cyan-400" />
-            <span>{user ? (lang === 'ar' ? 'حساب مسجل موثق - NexusPay VIP' : 'Verified VIP Gamer Account') : (lang === 'ar' ? 'وضع الزائر (Guest Checkout)' : 'Guest Mode')}</span>
+            <span>{user ? (lang === 'ar' ? `حساب مسجل موثق (ID: ${numericUserId})` : `Verified Gamer ID: ${numericUserId}`) : (lang === 'ar' ? 'وضع الزائر (Guest Checkout)' : 'Guest Mode')}</span>
           </div>
           <h1 className="text-3xl font-black">
             {user ? (lang === 'ar' ? `أهلاً بك، ${user.name}` : `Welcome back, ${user.name}`) : (lang === 'ar' ? 'حساب الزائر' : 'Guest Account')}
           </h1>
           <p className="text-xs text-slate-400 font-mono">
-            {user ? `${user.email} • ${user.phone}` : (lang === 'ar' ? 'قم بتسجيل الدخول للحصول على مكافآت الشحن وحفظ المشتريات' : 'Sign in to save purchase history and unlock bonuses')}
+            {user ? `ID: ${numericUserId} • ${user.email}${user.phone ? ` • ${user.countryCode || '+967'} ${user.phone}` : ''}` : (lang === 'ar' ? 'قم بتسجيل الدخول للحصول على مكافآت الشحن وحفظ المشتريات' : 'Sign in to save purchase history and unlock bonuses')}
           </p>
 
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[11px] font-mono text-cyan-300 font-bold">
-              {lang === 'ar' ? `نوع الحساب والصلاحية: ${user?.role === 'ADMIN' ? 'مدير المنصة (ADMIN)' : 'عميل عادي (USER)'}` : `Account Role: ${user?.role || 'GUEST'}`}
+          <div className="flex items-center gap-3 pt-2">
+            <span className="text-[11px] font-mono text-cyan-300 font-bold bg-cyan-950/60 px-2.5 py-1 rounded-lg border border-cyan-500/20">
+              ID: {numericUserId}
             </span>
+            {user && (
+              <button
+                onClick={() => {
+                  setProfileForm({
+                    name: user.name || '',
+                    phone: user.phone || user.phone_number || '',
+                    countryCode: user.countryCode || '+967',
+                    currentPassword: '',
+                    newPassword: ''
+                  });
+                  setShowProfileModal(true);
+                }}
+                className="px-3 py-1 bg-blue-500/20 hover:bg-blue-600 hover:text-white text-cyan-300 rounded-lg text-xs font-bold border border-cyan-500/30 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>✏️ تعديل البيانات الشخصية</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -299,6 +338,128 @@ export const UserDashboardPage = () => {
           </div>
         </div>
       </div>
+
+      {/* MODAL: EDIT PROFILE DATA */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 text-right rtl:text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    {lang === 'ar' ? 'تعديل البيانات الشخصية' : 'Edit Profile Settings'}
+                  </h3>
+                  <span className="text-xs text-slate-400 font-bold">
+                    ID: {numericUserId}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <form onSubmit={handleProfileSubmit} className="space-y-4">
+              {/* Full Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  {lang === 'ar' ? 'الاسم الكامل' : 'Full Name'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.name}
+                  onChange={e => setProfileForm(p => ({ ...p, name: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Read-Only Email */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1 flex items-center justify-between">
+                  <span>{lang === 'ar' ? 'البريد الإلكتروني (غير قابل للتعديل)' : 'Email Address (Read-Only)'}</span>
+                  <span className="text-[10px] text-slate-500">🔒 محمي</span>
+                </label>
+                <input
+                  type="email"
+                  disabled
+                  value={user?.email || ''}
+                  className="w-full px-4 py-2.5 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-500 cursor-not-allowed"
+                />
+              </div>
+
+              {/* Phone & Country Code */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  {lang === 'ar' ? 'رقم الهاتف والرمز الدولي' : 'Phone Number & Country Code'}
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={profileForm.countryCode}
+                    onChange={e => setProfileForm(p => ({ ...p, countryCode: e.target.value }))}
+                    className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white"
+                  >
+                    <option value="+967">🇾🇪 اليمن (+967)</option>
+                  </select>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="784746159"
+                    value={profileForm.phone}
+                    onChange={e => setProfileForm(p => ({ ...p, phone: e.target.value }))}
+                    className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Passwords */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-3">
+                <span className="text-xs font-black text-slate-700 dark:text-slate-300 block">
+                  🔐 {lang === 'ar' ? 'تغيير كلمة المرور (اختياري)' : 'Change Password (Optional)'}
+                </span>
+
+                <div>
+                  <input
+                    type="password"
+                    placeholder={lang === 'ar' ? 'كلمة المرور الحالية' : 'Current Password'}
+                    value={profileForm.currentPassword}
+                    onChange={e => setProfileForm(p => ({ ...p, currentPassword: e.target.value }))}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <input
+                    type="password"
+                    placeholder={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'}
+                    value={profileForm.newPassword}
+                    onChange={e => setProfileForm(p => ({ ...p, newPassword: e.target.value }))}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={isUpdatingProfile}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isUpdatingProfile ? (lang === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -1,5 +1,6 @@
 import express from 'express';
 import { query } from '../config/database.js';
+import { sendSupportReplyEmail } from '../utils/emailDispatcher.js';
 
 const router = express.Router();
 
@@ -134,6 +135,39 @@ router.put('/complaints/:id/status', async (req, res, next) => {
     if (idx !== -1) {
       inMemoryComplaints[idx].status = status;
       inMemoryComplaints[idx].adminNotes = adminNotes;
+    }
+
+    // Send email notification to user if adminNotes provided
+    if (adminNotes && adminNotes.trim().length > 0) {
+      let targetEmail = null;
+      let targetName = 'العميل العزيز';
+
+      const memComp = inMemoryComplaints.find(c => c.id === id);
+      if (memComp) {
+        targetEmail = memComp.email;
+        targetName = memComp.name;
+      } else {
+        try {
+          const compCheck = await query('SELECT name, email FROM user_complaints WHERE id = $1', [id]);
+          if (compCheck.rows.length > 0) {
+            targetEmail = compCheck.rows[0].email;
+            targetName = compCheck.rows[0].name;
+          }
+        } catch (e) {}
+      }
+
+      if (targetEmail) {
+        try {
+          await sendSupportReplyEmail({
+            toEmail: targetEmail,
+            userName: targetName,
+            complaintId: id,
+            responseNotes: adminNotes
+          });
+        } catch (emailErr) {
+          console.warn('[COMPLAINT EMAIL WARNING]', emailErr.message);
+        }
+      }
     }
 
     res.json({ success: true, message: 'تم تحديث حالة الشكوى بنجاح', id, status, adminNotes });

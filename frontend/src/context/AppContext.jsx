@@ -188,13 +188,37 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // On page load: if a session exists, re-fetch wallet from DB to avoid stale localStorage
   useEffect(() => {
-    if (user?.id) {
+    if (user && user.id) {
       fetchWallet(user.id);
+      fetchBackendUserOrders(user.id);
+    } else {
+      setOrders([]);
+      try { localStorage.removeItem('nexus_user_orders'); } catch (e) {}
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
+
+  // Fetch fresh orders for logged in user strictly from DB
+  const fetchBackendUserOrders = async (userId) => {
+    if (!userId) {
+      setOrders([]);
+      try { localStorage.removeItem('nexus_user_orders'); } catch (e) {}
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/user/${userId}`);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.orders)) {
+        setOrders(data.orders);
+        try { localStorage.setItem('nexus_user_orders', JSON.stringify(data.orders)); } catch (e) {}
+      } else {
+        setOrders([]);
+        try { localStorage.setItem('nexus_user_orders', '[]'); } catch (e) {}
+      }
+    } catch (err) {
+      console.warn('[USER ORDERS FETCH WARN]', err.message);
+    }
+  };
 
   // Auto-sync Country preferences
   useEffect(() => {
@@ -590,7 +614,7 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, password, countryCode = 'SA') => {
+  const register = async (name, email, password, phone, countryCode = '+967') => {
     if (!validatePasswordStrength(password)) {
       addToast(
         lang === 'ar' 
@@ -605,7 +629,7 @@ export const AppProvider = ({ children }) => {
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, countryCode })
+        body: JSON.stringify({ name, email, password, phone, countryCode })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -620,6 +644,39 @@ export const AppProvider = ({ children }) => {
       return true;
     } catch (err) {
       addToast(lang === 'ar' ? `فشل إنشاء الحساب: ${err.message}` : `Registration failed: ${err.message}`, 'error');
+      return false;
+    }
+  };
+
+  const updateUserProfile = async (profileData) => {
+    if (!user || !user.id) {
+      addToast(lang === 'ar' ? 'يجب تسجيل الدخول أولاً' : 'Login required', 'error');
+      return false;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          name: profileData.name,
+          phone: profileData.phone,
+          countryCode: profileData.countryCode || '+967',
+          currentPassword: profileData.currentPassword,
+          newPassword: profileData.newPassword
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Profile update failed');
+      }
+
+      setUser(data.user);
+      localStorage.setItem('nexus_user_session', JSON.stringify(data.user));
+      addToast(lang === 'ar' ? 'تم تحديث بياناتك الشخصية بنجاح!' : 'Profile updated successfully!');
+      return true;
+    } catch (err) {
+      addToast(lang === 'ar' ? `فشل تحديث البيانات: ${err.message}` : `Profile update failed: ${err.message}`, 'error');
       return false;
     }
   };
@@ -911,7 +968,9 @@ export const AppProvider = ({ children }) => {
           paymentMethod: orderDetails.paymentMethod || 'WALLET',
           isGuest: user ? false : (orderDetails.isGuest ?? true),
           guestEmail: orderDetails.guestEmail || (user ? user.email : 'guest@example.com'),
-          userId: user ? user.id : null
+          userId: user ? user.id : null,
+          targetAccountId: orderDetails.targetAccountId || orderDetails.playerId || 'N/A',
+          items: orderDetails.items || []
         })
       });
 
@@ -938,8 +997,12 @@ export const AppProvider = ({ children }) => {
         if (user && user.id) fetchWallet(user.id);
       }
 
-      // Update Presentation State from Backend Response
-      setOrders(prev => [deliveredOrder, ...prev]);
+      // Update Presentation State from Backend Response & Persist to Local Storage
+      setOrders(prev => {
+        const updatedOrdersList = [deliveredOrder, ...prev];
+        try { localStorage.setItem('nexus_user_orders', JSON.stringify(updatedOrdersList)); } catch (e) {}
+        return updatedOrdersList;
+      });
 
       // Deduct Provider Balance in local presentation state from Backend Response
       setProvidersList(prev => prev.map(p => {
@@ -1037,6 +1100,7 @@ export const AppProvider = ({ children }) => {
         login,
         register,
         logout,
+        updateUserProfile,
         toggleUserRole,
         userWallet,
         userCountry,

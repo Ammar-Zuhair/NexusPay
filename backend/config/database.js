@@ -1,56 +1,49 @@
+import { Pool as NeonPool } from '@neondatabase/serverless';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const { Pool } = pg;
+const { Pool: PgPool } = pg;
 
 const hasCloudDbUrl = Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.length > 10);
-const isProduction = process.env.NODE_ENV === 'production' || hasCloudDbUrl;
 
-// Support both DATABASE_URL (e.g. Neon Cloud Postgres) and discrete variables for local development
-const poolConfig = process.env.DATABASE_URL
-  ? {
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 25,
-      idleTimeoutMillis: 60000,
-      connectionTimeoutMillis: 30000,
-      keepAlive: true,
-    }
-  : {
+export const dbPool = hasCloudDbUrl
+  ? new NeonPool({ connectionString: process.env.DATABASE_URL })
+  : new PgPool({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DB_NAME || 'coinwebsite_db',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD,
-      ssl: isProduction ? { rejectUnauthorized: false } : false,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    };
-
-export const dbPool = new Pool(poolConfig);
+    });
 
 let isDbAvailable = false;
 let dbProbePromise = null;
 
-export const ensureDbConnection = async () => {
+export const ensureDbConnection = async (retries = 3) => {
   if (isDbAvailable) return true;
   if (dbProbePromise) return dbProbePromise;
 
-  dbProbePromise = dbPool.query('SELECT 1')
-    .then(() => {
-      isDbAvailable = true;
-      console.log('[DATABASE CONFIG] Neon Cloud PostgreSQL Database Connected & Healthy ✅');
-      return true;
-    })
-    .catch((err) => {
-      isDbAvailable = false;
-      dbProbePromise = null; // Reset probe so next query re-attempts connection!
-      console.log('[DATABASE CONFIG] Cloud DB Probe Note:', err.message);
-      return false;
-    });
+  dbProbePromise = (async () => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await dbPool.query('SELECT 1');
+        isDbAvailable = true;
+        console.log('[DATABASE CONFIG] Neon Cloud PostgreSQL Database Connected & Healthy ✅');
+        return true;
+      } catch (err) {
+        if (attempt === retries) {
+          isDbAvailable = false;
+          dbProbePromise = null;
+          console.log('[DATABASE CONFIG] Cloud DB Probe Note:', err.message || err);
+          return false;
+        }
+        await new Promise(res => setTimeout(res, 1500));
+      }
+    }
+  })();
+
   return dbProbePromise;
 };
 
@@ -63,16 +56,25 @@ dbPool.on('error', (err) => {
 });
 
 export const query = async (text, params) => {
-  try {
-    const res = await dbPool.query(text, params);
-    isDbAvailable = true;
-    return res;
-  } catch (err) {
-    isDbAvailable = false;
-    dbProbePromise = null;
-    console.warn('[DATABASE QUERY WARN]', err.message);
-    throw err;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await dbPool.query(text, params);
+      isDbAvailable = true;
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3 && (err.code === 'ETIMEDOUT' || err.message?.includes('timeout') || err.message?.includes('terminated'))) {
+        await new Promise(res => setTimeout(res, 1000));
+        continue;
+      }
+      isDbAvailable = false;
+      dbProbePromise = null;
+      console.warn('[DATABASE QUERY WARN]', err.message);
+      throw err;
+    }
   }
+  throw lastErr;
 };
 
 export const checkDbStatus = () => isDbAvailable;

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { query } from '../config/database.js';
 import { OrderStateMachine, ORDER_STATES } from '../services/orders/OrderStateMachine.js';
 import { DoubleEntryLedger } from '../services/wallets/DoubleEntryLedger.js';
+import { sendDigitalCodeEmail } from '../utils/emailDispatcher.js';
 
 const router = express.Router();
 
@@ -174,23 +175,19 @@ router.post('/orders', async (req, res, next) => {
 
     // Save to Database if PostgreSQL connected
     try {
-      let validUserId = null;
-      if (!isGuest && currentUserId) {
-        try {
-          const uCheck = await query('SELECT id FROM users WHERE id = $1', [currentUserId]);
-          if (uCheck.rows.length > 0) validUserId = currentUserId;
-        } catch (e) {}
-      }
+      const dbUserId = currentUserId || (isGuest ? 'guest-user' : null);
 
       await query(
-        `INSERT INTO orders (id, order_number, correlation_id, idempotency_key, user_id, product_id, product_title, package_title, user_name, user_email, status, total_amount, total_usd, payment_method, target_account_id, delivered_payload, delivery_payload, items_json, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15, $15, $16, $17)
+        `INSERT INTO orders (id, order_number, correlation_id, idempotency_key, user_id, product_id, product_title, package_title, user_name, user_email, guest_email, status, total_amount, total_usd, payment_method, target_account_id, delivered_payload, delivery_payload, items_json, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $16, $17, $18)
          ON CONFLICT (id) DO UPDATE SET
+           user_id = EXCLUDED.user_id,
            status = EXCLUDED.status,
            product_title = EXCLUDED.product_title,
            package_title = EXCLUDED.package_title,
            user_name = EXCLUDED.user_name,
            user_email = EXCLUDED.user_email,
+           guest_email = EXCLUDED.guest_email,
            payment_method = EXCLUDED.payment_method,
            target_account_id = EXCLUDED.target_account_id,
            delivered_payload = EXCLUDED.delivered_payload,
@@ -201,12 +198,13 @@ router.post('/orders', async (req, res, next) => {
           newOrder.orderNumber,
           newOrder.correlationId,
           newOrder.idempotencyKey,
-          validUserId,
+          dbUserId,
           newOrder.productId,
           newOrder.productTitle,
           newOrder.packageTitle,
           newOrder.userName,
           newOrder.userEmail,
+          newOrder.guestEmail,
           newOrder.status,
           newOrder.priceUSD,
           newOrder.paymentMethod,
@@ -216,6 +214,7 @@ router.post('/orders', async (req, res, next) => {
           newOrder.createdAt
         ]
       );
+      console.log(`[ORDERS DB SUCCESS] Order ${newOrder.id} saved in Postgres for user ${dbUserId} (${newOrder.userEmail})`);
     } catch (dbErr) {
       console.warn('[ORDERS API NOTE] DB transaction fallback:', dbErr.message);
     }
@@ -274,6 +273,58 @@ router.get('/orders', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/orders/user/:userId - List user orders strictly isolated from backend database
+ */
+router.get('/orders/user/:userId', async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId || userId === 'null' || userId === 'undefined') {
+      return res.json({ success: true, count: 0, orders: [] });
+    }
+
+    try {
+      const sqlResult = await query(
+        `SELECT o.*, u.full_name as user_full_name, u.email as u_email 
+         FROM orders o 
+         LEFT JOIN users u ON o.user_id = u.id 
+         WHERE o.user_id = $1 
+            OR LOWER(o.user_email) = LOWER($1)
+            OR LOWER(o.guest_email) = LOWER($1)
+            OR LOWER(o.user_email) = (SELECT LOWER(email) FROM users WHERE id = $1)
+            OR LOWER(o.guest_email) = (SELECT LOWER(email) FROM users WHERE id = $1)
+         ORDER BY o.created_at DESC 
+         LIMIT 100`,
+        [userId]
+      );
+
+      const mappedOrders = sqlResult && sqlResult.rows ? sqlResult.rows.map(mapOrderRow) : [];
+      return res.json({
+        success: true,
+        source: 'DATABASE',
+        count: mappedOrders.length,
+        orders: mappedOrders
+      });
+    } catch (sqlErr) {
+      console.log('[USER ORDERS SQL NOTICE]', sqlErr.message);
+    }
+
+    const filteredStore = Array.from(ordersDb.values())
+      .filter(o => o.userId === userId || o.user_id === userId || (o.userEmail && o.userEmail.toLowerCase() === userId.toLowerCase()))
+      .map(mapOrderRow);
+
+    res.json({
+      success: true,
+      source: 'STORE',
+      count: filteredStore.length,
+      orders: filteredStore
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/v1/orders/:id/approve-dispatch - Admin: Approve order and dispatch code email
  */
 router.post('/orders/:id/approve-dispatch', async (req, res, next) => {
@@ -317,7 +368,21 @@ router.post('/orders/:id/approve-dispatch', async (req, res, next) => {
       console.warn('[ORDERS DISPATCH SQL NOTE]', sqlErr.message);
     }
 
-    console.log(`[EMAIL DISPATCHER SIMULATOR] Sent code email to ${recipientEmail} for order #${id}`);
+    try {
+      await sendDigitalCodeEmail({
+        toEmail: recipientEmail,
+        userName: order?.userName || 'العميل الكريم',
+        orderId: id,
+        productTitle: order?.productTitle || 'منتج رقمي',
+        packageTitle: order?.packageTitle || 'باقة إلكترونية',
+        pinCode: fulfillmentCode,
+        serialNumber: serialNumber,
+        emailSubject: emailSubject,
+        emailBody: emailBody
+      });
+    } catch (emailErr) {
+      console.warn('[ORDER DISPATCH EMAIL WARNING]', emailErr.message);
+    }
 
     const updatedObj = mapOrderRow({
       ...(order || {}),

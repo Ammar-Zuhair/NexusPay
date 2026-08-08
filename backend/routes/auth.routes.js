@@ -5,31 +5,14 @@
 
 import express from 'express';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import { query } from '../config/database.js';
+import { sendEmail, sendOtpEmail } from '../utils/emailDispatcher.js';
 
 const router = express.Router();
 
 // ─── In-memory stores ───────────────────────────────────────────────────────
 const otpStore          = new Map(); // email -> { otp, expiresAt }
 const resetTokenStore   = new Map(); // token -> { userId, email, expiresAt }
-
-// ─── Email transporter ──────────────────────────────────────────────────────
-async function sendEmail({ to, subject, html }) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.log(`[EMAIL SIMULATOR] To: ${to}`);
-    console.log(`[EMAIL SIMULATOR] Subject: ${subject}`);
-    console.log(`[EMAIL SIMULATOR] Body preview: ${html.slice(0, 200)}`);
-    return { simulated: true };
-  }
-  const transporter = nodemailer.createTransport({
-    host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
-    port:   parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth:   { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-  });
-  return transporter.sendMail({ from: `"NexusPay Store" <${process.env.SMTP_USER}>`, to, subject, html });
-}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function hashPassword(password) {
@@ -61,10 +44,10 @@ function generateOtp() {
  */
 router.post('/auth/register', async (req, res, next) => {
   try {
-    const { name, email, password, countryCode = 'YE' } = req.body;
+    const { name, email, password, phone, countryCode = '+967' } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
+    if (!name || !email || !password || !phone) {
+      return res.status(400).json({ error: 'جميع الحقول مطلوبة بما فيها الاسم، البريد، رقم الهاتف، وكلمة المرور' });
     }
 
     if (!validatePasswordStrength(password)) {
@@ -74,6 +57,8 @@ router.post('/auth/register', async (req, res, next) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.trim();
+    const formattedCountryCode = countryCode.startsWith('+') ? countryCode : `+${countryCode}`;
 
     // Check duplicate
     try {
@@ -85,14 +70,15 @@ router.post('/auth/register', async (req, res, next) => {
       console.warn('[DB CHECK WARNING]', dbErr.message);
     }
 
-    const userId         = `usr-${Date.now().toString().slice(-6)}`;
+    const numericSeq    = Math.floor(100000 + Math.random() * 900000);
+    const userId        = `usr-${numericSeq}`;
     const hashedPassword = hashPassword(password);
 
     try {
       await query(
-        `INSERT INTO users (id, email, password_hash, full_name, country_code, role_code, status)
-         VALUES ($1, $2, $3, $4, $5, 'USER', 'PENDING_VERIFICATION')`,
-        [userId, cleanEmail, hashedPassword, name, countryCode.toUpperCase()]
+        `INSERT INTO users (id, email, password_hash, full_name, phone, phone_number, country_code, role_code, status)
+         VALUES ($1, $2, $3, $4, $5, $5, $6, 'USER', 'PENDING_VERIFICATION')`,
+        [userId, cleanEmail, hashedPassword, name, cleanPhone, formattedCountryCode]
       );
       const walletId = `wlt-${userId}`;
       await query(
@@ -112,29 +98,8 @@ router.post('/auth/register', async (req, res, next) => {
     otpStore.set(cleanEmail, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
     console.log(`[OTP] Generated for ${cleanEmail}: ${otp}`);
 
-    const emailHtml = `
-      <div dir="rtl" style="font-family:Arial,sans-serif;max-width:480px;margin:auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#1d4ed8,#0891b2);padding:28px 24px;text-align:center;">
-          <h1 style="color:white;margin:0;font-size:22px;">NexusPay Store</h1>
-          <p style="color:#bfdbfe;margin:6px 0 0;font-size:13px;">منصة الشحن والبطاقات الرقمية</p>
-        </div>
-        <div style="padding:28px 24px;background:#fff;">
-          <h2 style="color:#1e293b;font-size:18px;margin:0 0 12px;">مرحباً ${name} 👋</h2>
-          <p style="color:#475569;font-size:14px;line-height:1.7;">
-            شكراً لتسجيلك في <strong>NexusPay Store</strong>. لإتمام إنشاء حسابك، أدخل رمز التحقق التالي:
-          </p>
-          <div style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:20px;text-align:center;margin:20px 0;">
-            <span style="font-size:38px;font-weight:900;color:#16a34a;letter-spacing:10px;font-family:monospace;">${otp}</span>
-          </div>
-          <p style="color:#94a3b8;font-size:12px;margin:0;">⏱ صالح لمدة <strong>10 دقائق</strong> فقط. لا تشارك هذا الرمز مع أحد.</p>
-        </div>
-        <div style="padding:16px 24px;background:#f8fafc;text-align:center;border-top:1px solid #e2e8f0;">
-          <p style="color:#94a3b8;font-size:11px;margin:0;">إذا لم تقم بإنشاء هذا الحساب، تجاهل هذه الرسالة.</p>
-        </div>
-      </div>`;
-
     try {
-      await sendEmail({ to: cleanEmail, subject: `رمز التحقق من البريد - NexusPay: ${otp}`, html: emailHtml });
+      await sendOtpEmail(cleanEmail, otp, name);
     } catch (emailErr) {
       console.warn('[EMAIL SEND WARNING]', emailErr.message);
     }
@@ -143,7 +108,16 @@ router.post('/auth/register', async (req, res, next) => {
       message: 'تم إنشاء الحساب بنجاح. يرجى التحقق من بريدك الإلكتروني وإدخال رمز OTP.',
       requiresOtp: true,
       email: cleanEmail,
-      user: { id: userId, name, email: cleanEmail, role: 'USER', countryCode: countryCode.toUpperCase(), isLoggedIn: false }
+      user: {
+        id: userId,
+        numericId: String(numericSeq),
+        name,
+        email: cleanEmail,
+        phone: cleanPhone,
+        countryCode: formattedCountryCode,
+        role: 'USER',
+        isLoggedIn: false
+      }
     });
   } catch (err) {
     next(err);
@@ -179,20 +153,7 @@ router.post('/auth/verify-otp', async (req, res, next) => {
       console.warn('[OTP ACTIVATE DB WARNING]', dbErr.message);
     }
 
-    // Fetch user for response
-    let userData = { email: cleanEmail, role: 'USER', isLoggedIn: true };
-    try {
-      const userRes = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
-      if (userRes.rows.length > 0) {
-        const u = userRes.rows[0];
-        userData = { id: u.id, name: u.full_name, email: u.email, role: u.role_code || 'USER', countryCode: u.country_code || 'YE', isLoggedIn: true };
-      }
-    } catch (dbErr) {
-      console.warn('[OTP USER FETCH WARNING]', dbErr.message);
-      userData = { email: cleanEmail, name: 'مستخدم', role: 'USER', isLoggedIn: true };
-    }
-
-    res.json({ success: true, message: 'تم التحقق بنجاح! مرحباً بك في NexusPay Store.', user: userData });
+    res.json({ success: true, message: 'تم تفعيل الحساب بنجاح' });
   } catch (err) {
     next(err);
   }
@@ -211,22 +172,8 @@ router.post('/auth/resend-otp', async (req, res, next) => {
     otpStore.set(cleanEmail, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
     console.log(`[OTP RESEND] For ${cleanEmail}: ${otp}`);
 
-    const emailHtml = `
-      <div dir="rtl" style="font-family:Arial,sans-serif;max-width:480px;margin:auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#1d4ed8,#0891b2);padding:28px 24px;text-align:center;">
-          <h1 style="color:white;margin:0;">NexusPay Store</h1>
-        </div>
-        <div style="padding:28px 24px;">
-          <p style="color:#475569;font-size:14px;">رمز التحقق الجديد الخاص بك:</p>
-          <div style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:20px;text-align:center;margin:20px 0;">
-            <span style="font-size:38px;font-weight:900;color:#16a34a;letter-spacing:10px;font-family:monospace;">${otp}</span>
-          </div>
-          <p style="color:#94a3b8;font-size:12px;">⏱ صالح لمدة 10 دقائق فقط.</p>
-        </div>
-      </div>`;
-
     try {
-      await sendEmail({ to: cleanEmail, subject: `رمز التحقق الجديد - NexusPay: ${otp}`, html: emailHtml });
+      await sendOtpEmail(cleanEmail, otp);
     } catch (emailErr) {
       console.warn('[RESEND OTP EMAIL WARNING]', emailErr.message);
     }
@@ -270,10 +217,13 @@ router.post('/auth/login', async (req, res, next) => {
             console.warn('[WALLET FETCH]', wErr.message);
           }
 
+          const numId = dbUser.id ? dbUser.id.replace(/\D/g, '') : '784920';
+
           return res.json({
             message: 'Login successful',
             user: {
               id:          dbUser.id,
+              numericId:   numId || '784920',
               name:        dbUser.full_name,
               email:       dbUser.email,
               role:        dbUser.role_code || 'USER',

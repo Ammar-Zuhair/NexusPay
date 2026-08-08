@@ -35,7 +35,8 @@ export const DDL_SCHEMA_QUERIES = [
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(100) NOT NULL,
     phone VARCHAR(30),
-    country_code VARCHAR(10) DEFAULT 'SA',
+    phone_number VARCHAR(30),
+    country_code VARCHAR(10) DEFAULT '+967',
     role_code VARCHAR(50) NOT NULL REFERENCES roles(code),
     status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION')),
     is_2fa_enabled BOOLEAN DEFAULT FALSE,
@@ -44,6 +45,10 @@ export const DDL_SCHEMA_QUERIES = [
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
   );`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(30);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(10) DEFAULT '+967';`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS target_account_id VARCHAR(100);`,
   `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`,
   `CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);`,
 

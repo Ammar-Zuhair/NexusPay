@@ -277,6 +277,7 @@ export const AdminDashboardPage = () => {
   };
 
   // Modal Visibility States
+  const [selectedOrderForItemsModal, setSelectedOrderForItemsModal] = useState(null);
   const [showAddProdModal, setShowAddProdModal] = useState(false);
   const [showEditProdModal, setShowEditProdModal] = useState(false);
   const [editingProd, setEditingProd] = useState(null);
@@ -1033,12 +1034,22 @@ export const AdminDashboardPage = () => {
                       );
                     })
                     .map((o) => {
-                      const isFulfilled = o.status === 'COMPLETED';
+                      const isFulfilled = o.status === 'COMPLETED' || o.status === 'DELIVERED';
                       const isPending = !isFulfilled && o.status !== 'REJECTED';
                       const customerName = o.userName || o.name || (o.isGuest ? (lang === 'ar' ? 'عميل زائر' : 'Guest Customer') : (lang === 'ar' ? 'عميل مسجل' : 'Registered User'));
                       const customerEmail = o.userEmail || o.guestEmail || (o.targetAccountId?.includes('@') ? o.targetAccountId : 'customer@nexuspaystore.com');
                       const displayPackage = o.packageTitle || o.packageId || o.productTitle || 'باقة رقمية';
-                      const activeCode = isFulfilled ? (o.pin_code || o.code || (typeof o.deliveredPayload === 'object' ? o.deliveredPayload?.pinCode : null)) : null;
+                      
+                      let activeCode = null;
+                      if (isFulfilled) {
+                        activeCode = o.pin_code || o.code;
+                        if (!activeCode && typeof o.deliveredPayload === 'object' && o.deliveredPayload?.pinCode) {
+                          activeCode = o.deliveredPayload.pinCode;
+                        }
+                        if (!activeCode && typeof o.delivery_payload === 'string') {
+                          try { activeCode = JSON.parse(o.delivery_payload)?.pinCode; } catch (e) {}
+                        }
+                      }
 
                       return (
                         <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
@@ -1054,6 +1065,14 @@ export const AdminDashboardPage = () => {
                           <td className="py-4 px-4">
                             <span className="font-black text-slate-900 dark:text-white block">{o.productTitle || o.productId}</span>
                             <span className="text-[11px] text-cyan-600 dark:text-cyan-400 font-extrabold block mt-0.5">📦 {displayPackage}</span>
+                            {o.items && o.items.length > 1 && (
+                              <button
+                                onClick={() => setSelectedOrderForItemsModal(o)}
+                                className="mt-1.5 px-2.5 py-1 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-600 dark:text-cyan-400 rounded-xl text-[10px] font-black border border-blue-500/20 block transition cursor-pointer"
+                              >
+                                📋 {lang === 'ar' ? `استعراض القائمة (${o.items.length} منتجات)` : `View Items (${o.items.length})`}
+                              </button>
+                            )}
                           </td>
 
                           {/* Customer Name / Account ID */}
@@ -3396,14 +3415,19 @@ export const AdminDashboardPage = () => {
                   <span>حفظ الرد وإرسال إشعار بالبريد الإلكتروني ({selectedComplaint.email})</span>
                 </button>
 
-                <div className="flex gap-2">
-                  <a
-                    href={`https://wa.me/967784746159?text=${encodeURIComponent(`أهلاً بك ${selectedComplaint.name}، بخصوص استفسارك/شكواك رقم #${selectedComplaint.id} في منصة NexusPay:\n${complaintResponseForm.notes || 'تمت المعالجة بنجاح'}`)}`}
-                    target="_blank" rel="noreferrer"
-                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md transition text-center flex items-center justify-center gap-1.5"
-                  >
-                    💬 إرسال الرد عبر الواتساب المباشر
-                  </a>
+                  {(() => {
+                    const rawDigits = (selectedComplaint?.phone || selectedComplaint?.phone_number || '784746159').replace(/\D/g, '');
+                    const fullWaNumber = rawDigits.startsWith('967') ? rawDigits : `967${rawDigits.replace(/^0+/, '')}`;
+                    return (
+                      <a
+                        href={`https://wa.me/${fullWaNumber}?text=${encodeURIComponent(`أهلاً بك ${selectedComplaint?.name}، بخصوص استفسارك/شكواك رقم #${selectedComplaint?.id} في منصة NexusPay:\n${complaintResponseForm.notes || 'تمت المعالجة بنجاح'}`)}`}
+                        target="_blank" rel="noreferrer"
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md transition text-center flex items-center justify-center gap-1.5"
+                      >
+                        💬 إرسال الرد عبر الواتساب المباشر ({fullWaNumber}+)
+                      </a>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={() => setShowComplaintModal(false)}
@@ -3415,6 +3439,55 @@ export const AdminDashboardPage = () => {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: MULTI-ITEM ORDER ITEMS LIST */}
+      {selectedOrderForItemsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 text-right rtl:text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    {lang === 'ar' ? `قائمة عناصر الطلب #${selectedOrderForItemsModal.id}` : `Items for Order #${selectedOrderForItemsModal.id}`}
+                  </h3>
+                  <span className="text-xs text-slate-400 font-bold">
+                    {selectedOrderForItemsModal.items?.length || 1} {lang === 'ar' ? 'منتجات في هذا الطلب' : 'items in order'}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedOrderForItemsModal(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              {(selectedOrderForItemsModal.items || []).map((item, idx) => (
+                <div key={idx} className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="font-black text-slate-900 dark:text-white text-xs block">{item.productTitle || item.title || item.productId}</span>
+                    <span className="text-[11px] text-cyan-600 dark:text-cyan-400 font-bold block mt-0.5">📦 {item.packageTitle || item.name || 'باقة إلكترونية'}</span>
+                    <span className="text-[10px] text-slate-400 block font-mono">الكمية: {item.quantity || 1}</span>
+                  </div>
+                  <div className="text-left font-mono">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm block">${((item.priceUSD || item.price || 9.99) * (item.quantity || 1)).toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedOrderForItemsModal(null)}
+                className="w-full py-2.5 bg-slate-900 dark:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
+                {lang === 'ar' ? 'إغلاق' : 'Close'}
+              </button>
+            </div>
           </div>
         </div>
       )}

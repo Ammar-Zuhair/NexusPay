@@ -250,10 +250,19 @@ export const CheckoutPage = () => {
         const itemTotal = (item.priceUSD || 9.99) * (item.quantity || 1);
         const order = await executeOrderCheckout({
           productId: item.productId || item.id,
-          productTitle: item.title,
+          productTitle: typeof item.title === 'string' ? item.title : (item.title?.ar || item.title?.en || 'منتج رقمي'),
+          packageTitle: item.packageTitle || item.packageName || (typeof item.title === 'string' ? item.title : 'باقة رقمية'),
+          quantity: item.quantity || 1,
           targetAccountId: item.targetAccountId || item.playerId || item.email || 'N/A',
           totalUSD: itemTotal,
           paymentMethod: paymentMethod,
+          items: itemsToProcess.map(i => ({
+            productId: i.productId || i.id,
+            productTitle: typeof i.title === 'string' ? i.title : (i.title?.ar || i.title?.en || 'منتج رقمي'),
+            packageTitle: i.packageTitle || i.packageName || (typeof i.title === 'string' ? i.title : 'باقة رقمية'),
+            quantity: i.quantity || 1,
+            priceUSD: i.priceUSD || 9.99
+          })),
           paymentDetails: paymentMethod === 'YEMEN_TRANSFER' ? {
             bankName: selectedBank.name,
             accountNumber: selectedBank.accountNumber,
