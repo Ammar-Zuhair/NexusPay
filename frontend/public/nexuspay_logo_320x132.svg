@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="132" viewBox="0 0 320 132" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b132b"/>
+      <stop offset="50%" stop-color="#1c2541"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <!-- Emblem Gradient -->
+    <linearGradient id="emblemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="50%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+
+    <!-- Gold Accent Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Container Box with Rounded Corners -->
+  <rect width="320" height="132" rx="20" fill="url(#bgGrad)"/>
+  <rect x="1.5" y="1.5" width="317" height="129" rx="18.5" fill="none" stroke="url(#emblemGrad)" stroke-opacity="0.3" stroke-width="2"/>
+
+  <!-- Geometric N Emblem Icon -->
+  <g transform="translate(28, 31)">
+    <!-- Outer Backing Box -->
+    <rect width="70" height="70" rx="18" fill="url(#emblemGrad)" opacity="0.15"/>
+    <rect width="70" height="70" rx="18" fill="none" stroke="url(#emblemGrad)" stroke-width="2.5"/>
+
+    <!-- Stylized N Mark -->
+    <path d="M 21 53 L 21 17 L 32 17 L 49 43 L 49 17 L 56 17 L 56 53 L 45 53 L 28 27 L 28 53 Z" fill="url(#emblemGrad)" />
+    <circle cx="53" cy="20" r="5" fill="url(#goldGrad)"/>
+  </g>
+
+  <!-- Brand Name Typography -->
+  <text x="114" y="68" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-weight="900" font-size="32" fill="#ffffff" letter-spacing="-0.5">Nexus<tspan fill="#38bdf8">Pay</tspan></text>
+
+  <!-- Tagline / Subtitle -->
+  <text x="115" y="88" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-weight="800" font-size="10" fill="#94a3b8" letter-spacing="1.5">GAMING &amp; DIGITAL PAYMENTS</text>
+
+  <!-- Verified Platform Pill Badge -->
+  <g transform="translate(115, 96)">
+    <rect width="168" height="18" rx="9" fill="#0f766e" fill-opacity="0.3" stroke="#14b8a6" stroke-opacity="0.4" stroke-width="1"/>
+    <circle cx="10" cy="9" r="3" fill="#10b981"/>
+    <text x="18" y="12.5" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-weight="800" font-size="8.5" fill="#5eead4" letter-spacing="0.5">VERIFIED OFFICIAL PLATFORM</text>
+  </g>
+</svg>

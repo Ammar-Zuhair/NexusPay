@@ -10,16 +10,20 @@ import { SmartRoutingEngine } from '../services/providers/SmartRoutingEngine';
 import { DLQManager } from '../services/dlq/DLQManager';
 import { TracingService } from '../services/observability/TracingService';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import { API_BASE_URL } from '../utils/api.js';
 
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
   const [lang, setLang] = useState('ar'); // Default language Arabic
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-  const [currency, setCurrency] = useState('USD'); // USD, EUR, SAR, AED, YER, EGP
+  const [currency, setCurrency] = useState(() => {
+    const saved = localStorage.getItem('nexus_currency');
+    return (saved && saved !== 'YER') ? saved : 'USD';
+  });
   const [activeTab, setActiveTabState] = useState('home');
   const [selectedGameId, setSelectedGameIdState] = useState('pubg-mobile');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
 
   // Sync tab navigation with Browser History (Back / Forward button support)
   const changeTabWithHistory = (newTab, gameId = null, replace = false) => {
@@ -28,6 +32,7 @@ export const AppProvider = ({ children }) => {
     if (gameId) {
       setSelectedGameIdState(gameId);
     }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
     const stateObj = { tab: newTab, gameId: targetGameId };
     const hashStr = '#' + newTab + (newTab === 'product' && targetGameId ? `/${targetGameId}` : '');
@@ -120,14 +125,26 @@ export const AppProvider = ({ children }) => {
     }
   });
 
-  const [userCountry, setUserCountry] = useState(() => localStorage.getItem('nexus_user_country') || 'SA');
-  const [browsingCountry, setBrowsingCountry] = useState(() => localStorage.getItem('nexus_browsing_country') || 'SA');
+  const [userCountry, setUserCountry] = useState(() => localStorage.getItem('nexus_user_country') || 'YE');
+  const [browsingCountry, setBrowsingCountry] = useState(() => localStorage.getItem('nexus_browsing_country') || 'YE');
 
   // Persistent Orders History
   const [orders, setOrders] = useState(() => {
     try {
       const saved = localStorage.getItem('nexus_user_orders');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map(o => {
+            const hasCode = o.code || o.pin_code || (o.deliveredPayload && o.deliveredPayload.pinCode);
+            if (!hasCode) {
+              return { ...o, status: 'PENDING', code: null };
+            }
+            return o;
+          });
+        }
+      }
+      return [];
     } catch {
       return [];
     }
@@ -157,6 +174,28 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('nexus_user_wallet', JSON.stringify(userWallet));
   }, [userWallet]);
 
+  // Fetch fresh wallet balance from DB (called on load & after top-up)
+  const fetchWallet = async (userId) => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/wallet/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUserWallet(data);
+      }
+    } catch (err) {
+      console.warn('[WALLET SYNC] Could not fetch balance from DB:', err.message);
+    }
+  };
+
+  // On page load: if a session exists, re-fetch wallet from DB to avoid stale localStorage
+  useEffect(() => {
+    if (user?.id) {
+      fetchWallet(user.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-sync Country preferences
   useEffect(() => {
     localStorage.setItem('nexus_browsing_country', browsingCountry);
@@ -165,6 +204,52 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem('nexus_user_country', userCountry);
   }, [userCountry]);
+
+  // Automatic IP Geolocation Country & Currency Auto-Detection
+  useEffect(() => {
+    let isMounted = true;
+    const hasDetectedBefore = localStorage.getItem('nexus_country_autodetected');
+
+    if (!hasDetectedBefore) {
+      const detectUserCountryFromIP = async () => {
+        try {
+          // 1. Primary: Backend IP GeoIP Endpoint
+          const res = await fetch(`${API_BASE_URL}/geoip`);
+          if (res.ok) {
+            const data = await res.json();
+            if (isMounted && data.countryCode) {
+              setBrowsingCountry(data.countryCode);
+              setUserCountry(data.countryCode);
+              if (data.currency) setCurrency(data.currency);
+              localStorage.setItem('nexus_country_autodetected', 'true');
+              return;
+            }
+          }
+
+          // 2. Fallback: Direct Public GeoIP Client Fetch
+          const pubRes = await fetch('https://ipapi.co/json/');
+          if (pubRes.ok) {
+            const pubData = await pubRes.json();
+            if (isMounted && pubData.country_code) {
+              const code = pubData.country_code.toUpperCase();
+              setBrowsingCountry(code);
+              setUserCountry(code);
+              if (pubData.currency) setCurrency(pubData.currency);
+              localStorage.setItem('nexus_country_autodetected', 'true');
+            }
+          }
+        } catch (err) {
+          console.warn('[GEOIP NOTICE] Defaulting to initial country:', err.message);
+        }
+      };
+
+      detectUserCountryFromIP();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Auto-sync Orders to localStorage
   useEffect(() => {
@@ -495,6 +580,8 @@ export const AppProvider = ({ children }) => {
       } else {
         setUserWallet({ availableBalance: 0, heldBalance: 0, currency: 'USD' });
       }
+      // Always sync from DB after login to ensure fresh balance
+      if (data.user?.id) fetchWallet(data.user.id);
       addToast(lang === 'ar' ? `مرحباً بك ${data.user.name}!` : `Welcome, ${data.user.name}!`);
       return true;
     } catch (err) {
@@ -570,25 +657,142 @@ export const AppProvider = ({ children }) => {
       if (!res.ok) {
         throw new Error(data.error || 'Payment failed');
       }
-      // Update local wallet state
+      // Update local wallet state immediately, then confirm from DB
       const newBalance = (userWallet.availableBalance || 0) + parseFloat(amountUSD);
       setUserWallet(prev => ({ ...prev, availableBalance: newBalance }));
+      // Sync with actual DB value to ensure correctness
+      if (user?.id) await fetchWallet(user.id);
       addToast(
-        lang === 'ar' 
-          ? `تم شحن المحفظة بمبلغ ${formatCurrency(amountUSD)} بنجاح! رقم العملية: ${data.txId}` 
+        lang === 'ar'
+          ? `تم شحن المحفظة بمبلغ ${formatCurrency(amountUSD)} بنجاح! رقم العملية: ${data.txId}`
           : `Wallet topped up with ${formatCurrency(amountUSD)}! Ref: ${data.txId}`
       );
       return { success: true, txId: data.txId };
     } catch (err) {
       addToast(
-        lang === 'ar' 
-          ? `فشلت عملية الشحن: ${err.message}` 
+        lang === 'ar'
+          ? `فشلت عملية الشحن: ${err.message}`
           : `Top-up failed: ${err.message}`,
         'error'
       );
       return false;
     } finally {
       setIsTopUpProcessing(false);
+    }
+  };
+
+  // Global TopUp Modal State
+  const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
+  const openTopUpModal = () => setIsTopUpModalOpen(true);
+  const closeTopUpModal = () => setIsTopUpModalOpen(false);
+
+  // Deposit Requests & Yemen Banks State
+  const [depositRequests, setDepositRequests] = useState([]);
+  const [yemenBanksList, setYemenBanksList] = useState([]);
+
+  const fetchDepositRequests = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/deposit-requests`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.requests) setDepositRequests(data.requests);
+      }
+    } catch (err) {
+      console.warn('[DEPOSIT REQUESTS FETCH] Notice:', err.message);
+    }
+  };
+
+  const fetchYemenBanks = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/yemen-banks`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.banks) setYemenBanksList(data.banks);
+      }
+    } catch (err) {
+      console.warn('[YEMEN BANKS FETCH] Notice:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchDepositRequests();
+    fetchYemenBanks();
+  }, []);
+
+  const approveDepositRequest = async (requestId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/deposit-requests/${requestId}/approve`, {
+        method: 'PUT'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Approval failed');
+
+      setDepositRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'COMPLETED', approvedAt: new Date().toISOString() } : r));
+      
+      // If approved for current logged in user, update local wallet balance
+      if (data.depositRequest && data.depositRequest.userId === user?.id) {
+        setUserWallet(prev => ({ ...prev, availableBalance: (prev.availableBalance || 0) + data.depositRequest.amountUSD }));
+      }
+      
+      addToast(lang === 'ar' ? 'تم تأكيد طلب الإيداع وشحن المحفظة بنجاح!' : 'Deposit request approved & credited!');
+      return true;
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل تأكيد الإيداع: ' : 'Approval error: ') + err.message, 'error');
+      return false;
+    }
+  };
+
+  const rejectDepositRequest = async (requestId, reason) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/deposit-requests/${requestId}/reject`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Rejection failed');
+
+      setDepositRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'REJECTED', rejectionReason: reason } : r));
+      addToast(lang === 'ar' ? 'تم رفض طلب الإيداع وتحديث الحالة' : 'Deposit request rejected');
+      return true;
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل رفض الطلب: ' : 'Rejection error: ') + err.message, 'error');
+      return false;
+    }
+  };
+
+  const addYemenBank = async (bankData) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/yemen-banks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bankData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add bank');
+
+      setYemenBanksList(prev => [...prev, data.bank]);
+      addToast(lang === 'ar' ? 'تمت إضافة الحساب المصرفي / المحفظة بنجاح!' : 'Bank account added!');
+      return true;
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل إضافة الحساب: ' : 'Add bank error: ') + err.message, 'error');
+      return false;
+    }
+  };
+
+  const deleteYemenBank = async (bankId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payments/yemen-banks/${bankId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Failed to delete bank');
+
+      setYemenBanksList(prev => prev.filter(b => b.id !== bankId));
+      addToast(lang === 'ar' ? 'تم حذف الحساب المصرفي' : 'Bank account deleted');
+      return true;
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل حذف الحساب: ' : 'Delete error: ') + err.message, 'error');
+      return false;
     }
   };
 
@@ -636,7 +840,7 @@ export const AppProvider = ({ children }) => {
   const formatCurrency = (amountUSD) => {
     const rate = MOCK_FX_RATES[currency] || 1.0;
     const converted = amountUSD * rate;
-    const symbols = { USD: '$', EUR: '€', SAR: 'ر.س', AED: 'د.إ', YER: 'ر.ي', EGP: 'ج.م' };
+    const symbols = { USD: '$', EUR: '€', SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م' };
     return `${symbols[currency] || '$'}${converted.toFixed(2)}`;
   };
 
@@ -701,10 +905,13 @@ export const AppProvider = ({ children }) => {
           quantity: orderDetails.quantity || 1,
           priceUSD: orderDetails.totalUSD || product.minPriceUSD || 9.99,
           providerCostUSD: orderDetails.providerCostUSD || (product.packages?.[0]?.providerCostUSD) || ((orderDetails.totalUSD || 9.99) * 0.85),
-          targetAccountId: orderDetails.targetAccountId || orderDetails.playerId || 'N/A',
-          paymentMethod: orderDetails.paymentMethod || 'GATEWAY',
-          isGuest: orderDetails.isGuest || !user,
-          guestEmail: orderDetails.guestEmail || (user ? user.email : 'guest@example.com')
+          packageTitle: orderDetails.packageTitle || orderDetails.title || (typeof product.title === 'string' ? product.title : (product.title[lang] || product.title.en)),
+          userName: user ? user.name : (orderDetails.guestName || 'عميل زائر'),
+          userEmail: user ? user.email : (orderDetails.guestEmail || 'guest@example.com'),
+          paymentMethod: orderDetails.paymentMethod || 'WALLET',
+          isGuest: user ? false : (orderDetails.isGuest ?? true),
+          guestEmail: orderDetails.guestEmail || (user ? user.email : 'guest@example.com'),
+          userId: user ? user.id : null
         })
       });
 
@@ -715,6 +922,21 @@ export const AppProvider = ({ children }) => {
       }
 
       const deliveredOrder = data.order;
+
+      // Deduct User Wallet balance if paying via WALLET
+      if (deliveredOrder.paymentMethod === 'WALLET') {
+        let newBalance = data.updatedWalletBalance;
+        if (newBalance === null || newBalance === undefined) {
+          newBalance = Math.max(0, (userWallet?.availableBalance || 0) - (deliveredOrder.priceUSD || 0));
+        }
+        const updatedWalletObj = {
+          ...(userWallet || {}),
+          availableBalance: newBalance
+        };
+        setUserWallet(updatedWalletObj);
+        localStorage.setItem('nexus_user_wallet', JSON.stringify(updatedWalletObj));
+        if (user && user.id) fetchWallet(user.id);
+      }
 
       // Update Presentation State from Backend Response
       setOrders(prev => [deliveredOrder, ...prev]);
@@ -800,6 +1022,8 @@ export const AppProvider = ({ children }) => {
         setActiveTab,
         selectedGameId,
         setSelectedGameId,
+        selectedCategoryId,
+        setSelectedCategoryId,
         cart,
         addToCart,
         removeFromCart,
@@ -821,6 +1045,17 @@ export const AppProvider = ({ children }) => {
         setBrowsingCountry,
         isTopUpProcessing,
         topUpWallet,
+        isTopUpModalOpen,
+        openTopUpModal,
+        closeTopUpModal,
+        depositRequests,
+        fetchDepositRequests,
+        approveDepositRequest,
+        rejectDepositRequest,
+        yemenBanksList,
+        fetchYemenBanks,
+        addYemenBank,
+        deleteYemenBank,
         orders,
         executeOrderCheckout,
         notifications,

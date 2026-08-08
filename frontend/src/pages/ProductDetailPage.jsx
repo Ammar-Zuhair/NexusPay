@@ -6,7 +6,7 @@ import {
   HelpCircle, ChevronLeft, ChevronRight, CheckCircle2, ShoppingBag, CreditCard
 } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import { API_BASE_URL } from '../utils/api.js';
 
 export const ProductDetailPage = () => {
   const {
@@ -232,20 +232,6 @@ export const ProductDetailPage = () => {
               {productDescText}
             </p>
 
-            <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-slate-800 dark:text-slate-200 font-black">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl flex items-center gap-3 border border-slate-200/80 dark:border-slate-700/60">
-                <Zap className="w-5 h-5 text-emerald-500 shrink-0" />
-                <span>{lang === 'ar' ? 'تسليم فوري (خلال دقيقتين)' : 'Instant Delivery (< 2 mins)'}</span>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl flex items-center gap-3 border border-slate-200/80 dark:border-slate-700/60">
-                <ShieldCheck className="w-5 h-5 text-blue-500 shrink-0" />
-                <span>{lang === 'ar' ? 'دفع آمن ومجهّز 100%' : '100% Secure Encrypted Pay'}</span>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl flex items-center gap-3 border border-slate-200/80 dark:border-slate-700/60">
-                <CheckCircle2 className="w-5 h-5 text-purple-500 shrink-0" />
-                <span>{lang === 'ar' ? 'ضمان التفعيل الرسمي' : 'Official Guarantee'}</span>
-              </div>
-            </div>
           </div>
 
         </div>

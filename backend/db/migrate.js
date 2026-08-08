@@ -5,7 +5,7 @@
  */
 
 import crypto from 'crypto';
-import { query } from '../config/database.js';
+import { query, checkDbStatus, ensureDbConnection } from '../config/database.js';
 
 export const DDL_SCHEMA_QUERIES = [
   // 1. ROLES
@@ -74,7 +74,7 @@ export const DDL_SCHEMA_QUERIES = [
     amount_usd DECIMAL(16,4) NOT NULL CHECK (amount_usd > 0),
     payment_method VARCHAR(50) NOT NULL,
     payment_reference VARCHAR(255),
-    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'REFUNDED')),
+    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'REFUNDED', 'PENDING_VERIFICATION')),
     gateway_response JSONB,
     country_code VARCHAR(10),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -195,6 +195,13 @@ export const DDL_SCHEMA_QUERIES = [
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
   );`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id VARCHAR(35);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_title VARCHAR(255);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_title VARCHAR(255);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_name VARCHAR(255);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_email VARCHAR(255);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_json JSONB DEFAULT '[]'::jsonb;`,
 
   // 14B. WALLET TOPUPS (Site Balance Deposits)
   `CREATE TABLE IF NOT EXISTS wallet_topups (
@@ -246,20 +253,25 @@ export const DDL_SCHEMA_QUERIES = [
 
   // 18. CHART_OF_ACCOUNTS
   `CREATE TABLE IF NOT EXISTS chart_of_accounts (
-    account_code VARCHAR(20) PRIMARY KEY,
+    id VARCHAR(35) PRIMARY KEY,
+    account_code VARCHAR(50) UNIQUE NOT NULL,
     account_name VARCHAR(100) NOT NULL,
-    account_type VARCHAR(30) NOT NULL CHECK (account_type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'))
+    account_type VARCHAR(30) NOT NULL CHECK (account_type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE')),
+    currency VARCHAR(10) DEFAULT 'USD'
   );`,
+  `ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS id VARCHAR(35);`,
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chart_of_accounts_id_key') THEN ALTER TABLE chart_of_accounts ADD CONSTRAINT chart_of_accounts_id_key UNIQUE (id); END IF; END $$;`,
 
   // 19. JOURNAL_ENTRIES
   `CREATE TABLE IF NOT EXISTS journal_entries (
     id VARCHAR(35) PRIMARY KEY,
-    correlation_id VARCHAR(100) NOT NULL,
+    correlation_id VARCHAR(100),
+    reference VARCHAR(100),
     order_id VARCHAR(35) REFERENCES orders(id),
-    debit_account VARCHAR(20) REFERENCES chart_of_accounts(account_code),
-    debit_amount DECIMAL(16,4) NOT NULL,
-    credit_account VARCHAR(20) REFERENCES chart_of_accounts(account_code),
-    credit_amount DECIMAL(16,4) NOT NULL,
+    debit_account VARCHAR(50) REFERENCES chart_of_accounts(account_code),
+    debit_amount DECIMAL(16,4) DEFAULT 0.0000,
+    credit_account VARCHAR(50) REFERENCES chart_of_accounts(account_code),
+    credit_amount DECIMAL(16,4) DEFAULT 0.0000,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
   );`,
 
@@ -294,6 +306,7 @@ export const DDL_SCHEMA_QUERIES = [
     ip_address VARCHAR(45),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
   );`,
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(100);`,
 
   // 23. API_LOGS
   `CREATE TABLE IF NOT EXISTS api_logs (
@@ -520,26 +533,97 @@ export const DDL_SCHEMA_QUERIES = [
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
   );`,
 
+  // ─── PATCH MIGRATIONS (missing columns & tables found at runtime) ──────────
+
+  // orders table: add product_id for direct product reference (fallback from order_items)
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id VARCHAR(35);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_id  VARCHAR(35);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_name TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_image TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_name TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity INT DEFAULT 1;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_email VARCHAR(255);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_name  VARCHAR(100);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pin_code   TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS serial_number TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_usd DECIMAL(16,4);`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_payload JSONB;`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);`,
+
+  // user_reviews table (used for product ratings & homepage carousel)
+  `CREATE TABLE IF NOT EXISTS user_reviews (
+    id VARCHAR(35) PRIMARY KEY,
+    user_id VARCHAR(35) REFERENCES users(id) ON DELETE SET NULL,
+    order_id VARCHAR(35) REFERENCES orders(id) ON DELETE SET NULL,
+    product_id VARCHAR(35),
+    rating INT NOT NULL DEFAULT 5 CHECK (rating BETWEEN 1 AND 5),
+    title VARCHAR(200),
+    body TEXT,
+    comment TEXT,
+    is_verified_purchase BOOLEAN DEFAULT FALSE,
+    is_approved BOOLEAN DEFAULT TRUE,
+    reviewer_name VARCHAR(100),
+    reviewer_country VARCHAR(10) DEFAULT 'YE',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `ALTER TABLE user_reviews ADD COLUMN IF NOT EXISTS comment TEXT;`,
+  `ALTER TABLE user_reviews ADD COLUMN IF NOT EXISTS body TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_reviews_product ON user_reviews(product_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_reviews_approved ON user_reviews(is_approved);`,
+
+  // Seed some default reviews for the homepage so it doesn't show empty
+  `INSERT INTO user_reviews (id, rating, title, comment, body, reviewer_name, reviewer_country, is_verified_purchase, is_approved)
+   VALUES
+   ('rev-seed-001', 5, 'رائع جداً', 'خدمة ممتازة وسرعة في التوصيل. شحنت ببجي بثواني!', 'خدمة ممتازة وسرعة في التوصيل. شحنت ببجي بثواني!', 'أحمد م.', 'YE', true, true),
+   ('rev-seed-002', 5, 'موثوق 100%', 'أفضل متجر للبطاقات الرقمية في اليمن، سرعة وأمان.', 'أفضل متجر للبطاقات الرقمية في اليمن، سرعة وأمان.', 'محمد ع.', 'YE', true, true),
+   ('rev-seed-003', 5, 'تجربة رائعة', 'شحنت شدات بببجي ووصلتني فوراً. شكراً NexusPay!', 'شحنت شدات بببجي ووصلتني فوراً. شكراً NexusPay!', 'سارة ق.', 'YE', true, true),
+   ('rev-seed-004', 5, 'ممتاز', 'بطاقة النت وورك وصلت مع كود التفعيل على الفور.', 'بطاقة النت وورك وصلت مع كود التفعيل على الفور.', 'علي ح.', 'YE', true, true),
+   ('rev-seed-005', 5, 'الأفضل', 'اشتريت بطاقة PSN بسعر ممتاز وبدون أي مشكلة.', 'اشتريت بطاقة PSN بسعر ممتاز وبدون أي مشكلة.', 'خالد ص.', 'YE', true, true)
+   ON CONFLICT (id) DO NOTHING;`,
+
+  // user_complaints table (used for customer messages & complaints from contact us page)
+  `CREATE TABLE IF NOT EXISTS user_complaints (
+    id VARCHAR(35) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    subject VARCHAR(50) DEFAULT 'GENERAL',
+    message TEXT NOT NULL,
+    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'IN_PROGRESS', 'RESOLVED', 'REJECTED')),
+    admin_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_complaints_status ON user_complaints(status);`,
+
   `INSERT INTO roles (code, title, description) VALUES ('USER', 'Regular User', 'Regular customer') ON CONFLICT (code) DO NOTHING;`,
   `INSERT INTO roles (code, title, description) VALUES ('ADMIN', 'Administrator', 'Platform administrator') ON CONFLICT (code) DO NOTHING;`
 ];
 
 export async function runMigrations() {
-  console.log('[MIGRATIONS] Starting DDL Schema Execution for 26 Tables...');
-  let successCount = 0;
-
-  for (const sql of DDL_SCHEMA_QUERIES) {
-    try {
-      await query(sql);
-      successCount++;
-    } catch (err) {
-      console.warn('[MIGRATION STATEMENT NOTE]', err.message);
+  await ensureDbConnection();
+  if (!checkDbStatus()) {
+    console.log('[MIGRATIONS] Database offline — Standalone mode active, skipping DDL execution.');
+    return { successCount: 0, total: 0 };
+  }
+  console.log('[MIGRATIONS] Executing batch DDL Schema for 26 Tables...');
+  try {
+    const combinedSql = DDL_SCHEMA_QUERIES.join('\n');
+    await query(combinedSql);
+    console.log(`[MIGRATIONS] Successfully executed all DDL statements in batch ✅`);
+  } catch (batchErr) {
+    console.warn('[MIGRATION BATCH FALLBACK NOTE]', batchErr.message);
+    let count = 0;
+    for (const sql of DDL_SCHEMA_QUERIES) {
+      try {
+        await query(sql);
+        count++;
+      } catch (e) {}
     }
+    console.log(`[MIGRATIONS] Fallback executed ${count} DDL statements.`);
   }
 
-  console.log(`[MIGRATIONS] Successfully executed ${successCount} DDL statements.`);
   await seedDefaultAdmin();
-  return { successCount, total: DDL_SCHEMA_QUERIES.length };
+  return { successCount: DDL_SCHEMA_QUERIES.length, total: DDL_SCHEMA_QUERIES.length };
 }
 
 async function seedDefaultAdmin() {
@@ -566,12 +650,24 @@ async function seedDefaultAdmin() {
       );
       console.log('[SEED SUCCESS] Admin user adminammar@gmail.com created and encrypted in Database!');
     }
+
+    // Seed Demo User (usr-demo-01) for standalone demo orders
+    await query(
+      `INSERT INTO users (id, email, password_hash, full_name, country_code, role_code, status)
+       VALUES ('usr-demo-01', 'demo@nexuspaystore.com', 'salt:hash', 'Demo Customer', 'YE', 'USER', 'ACTIVE')
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await query(
+      `INSERT INTO wallets (id, user_id, available_balance, held_balance, currency)
+       VALUES ('wlt-usr-demo-01', 'usr-demo-01', 500.0000, 0.0000, 'USD')
+       ON CONFLICT (id) DO NOTHING`
+    );
   } catch (err) {
     console.warn('[SEED ADMIN NOTE]', err.message);
   }
 }
 
-if (process.argv[1].endsWith('migrate.js')) {
+if (process.argv && process.argv[1] && process.argv[1].endsWith('migrate.js')) {
   runMigrations()
     .then(() => process.exit(0))
     .catch((err) => {

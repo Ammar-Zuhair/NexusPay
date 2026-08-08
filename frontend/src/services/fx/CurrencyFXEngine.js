@@ -17,8 +17,8 @@ class CurrencyFXEngineImpl {
     // Country-Specific Rounding Rules
     if (targetCurrency === 'SAR' || targetCurrency === 'AED') {
       return parseFloat(rawConverted.toFixed(2));
-    } else if (targetCurrency === 'YER' || targetCurrency === 'EGP') {
-      return Math.round(rawConverted); // Round to integer for high-denomination currencies
+    } else if (targetCurrency === 'EGP') {
+      return Math.round(rawConverted);
     }
     return parseFloat(rawConverted.toFixed(2));
   }

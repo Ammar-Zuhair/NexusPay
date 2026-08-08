@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { MOCK_CATEGORIES, MOCK_GAMES } from '../data/mockData';
 import { useApp } from '../context/AppContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import { API_BASE_URL } from '../utils/api.js';
 
 export const HomePage = () => {
-  const { lang, setActiveTab, setSelectedGameId, activeCategories, products } = useApp();
+  const { lang, setActiveTab, setSelectedGameId, activeCategories, products, setSelectedCategoryId } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [dailyReviews, setDailyReviews] = useState([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
@@ -147,7 +147,7 @@ export const HomePage = () => {
               </p>
             </div>
             <button
-              onClick={() => setActiveTab('browse')}
+              onClick={() => { setSelectedCategoryId('all'); setActiveTab('browse'); }}
               className="font-title-md text-title-md text-primary flex items-center gap-xs hover:underline underline-offset-4 decoration-2"
             >
               {lang === 'ar' ? 'عرض الكل' : 'View All'}
@@ -162,7 +162,7 @@ export const HomePage = () => {
               return (
                 <div
                   key={cat.id}
-                  onClick={() => setActiveTab('browse')}
+                  onClick={() => { setSelectedCategoryId(cat.id); setActiveTab('browse'); }}
                   className="group bg-surface-container-lowest border border-outline-variant/30 rounded-[16px] p-md shadow-sm hover:shadow-lg hover:border-primary/40 transition-all duration-300 cursor-pointer text-center"
                 >
                   <div className="text-4xl mb-md">{cat.icon}</div>

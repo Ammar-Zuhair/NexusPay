@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header';
@@ -12,9 +12,42 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { UserDashboardPage } from './pages/UserDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { LegalAndContactPages } from './pages/LegalAndContactPages';
+
+// Parse reset token from URL hash: /#reset-password?token=xxx
+function getResetTokenFromHash() {
+  const hash = window.location.hash || '';
+  if (!hash.startsWith('#reset-password')) return null;
+  const queryStr = hash.replace('#reset-password', '').replace(/^\?/, '');
+  const params = new URLSearchParams(queryStr);
+  return params.get('token') || null;
+}
 
 const MainContent = () => {
   const { activeTab, user, lang, setActiveTab } = useApp();
+  const [resetToken, setResetToken] = useState(() => getResetTokenFromHash());
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setResetToken(getResetTokenFromHash());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Reset password page takes priority over everything else
+  if (resetToken) {
+    return (
+      <main className="flex-1">
+        <ResetPasswordPage token={resetToken} />
+      </main>
+    );
+  }
 
   const isAdmin = user && user.role === 'ADMIN';
 
@@ -75,6 +108,9 @@ const MainContent = () => {
           </div>
         )
       )}
+      {['terms', 'privacy', 'refund', 'contact'].includes(activeTab) && (
+        <LegalAndContactPages tab={activeTab} />
+      )}
     </main>
   );
 };
@@ -94,3 +130,4 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+

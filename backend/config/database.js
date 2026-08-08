@@ -5,16 +5,18 @@ dotenv.config();
 
 const { Pool } = pg;
 
-const isProduction = process.env.NODE_ENV === 'production';
+const hasCloudDbUrl = Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.length > 10);
+const isProduction = process.env.NODE_ENV === 'production' || hasCloudDbUrl;
 
-// Support both DATABASE_URL (for cloud hosting like Supabase/Neon/Render) and discrete variables for local development
+// Support both DATABASE_URL (e.g. Neon Cloud Postgres) and discrete variables for local development
 const poolConfig = process.env.DATABASE_URL
   ? {
       connectionString: process.env.DATABASE_URL,
-      ssl: isProduction ? { rejectUnauthorized: false } : false,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false },
+      max: 25,
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: 30000,
+      keepAlive: true,
     }
   : {
       host: process.env.DB_HOST || 'localhost',
@@ -25,14 +27,52 @@ const poolConfig = process.env.DATABASE_URL
       ssl: isProduction ? { rejectUnauthorized: false } : false,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
     };
 
 export const dbPool = new Pool(poolConfig);
 
+let isDbAvailable = false;
+let dbProbePromise = null;
+
+export const ensureDbConnection = async () => {
+  if (isDbAvailable) return true;
+  if (dbProbePromise) return dbProbePromise;
+
+  dbProbePromise = dbPool.query('SELECT 1')
+    .then(() => {
+      isDbAvailable = true;
+      console.log('[DATABASE CONFIG] Neon Cloud PostgreSQL Database Connected & Healthy ✅');
+      return true;
+    })
+    .catch((err) => {
+      isDbAvailable = false;
+      dbProbePromise = null; // Reset probe so next query re-attempts connection!
+      console.log('[DATABASE CONFIG] Cloud DB Probe Note:', err.message);
+      return false;
+    });
+  return dbProbePromise;
+};
+
+// Initiate background probe immediately on import
+ensureDbConnection();
+
 dbPool.on('error', (err) => {
-  console.error('[DATABASE POOL ERROR]', err.message);
+  isDbAvailable = false;
+  console.warn('[DATABASE POOL ERROR]', err.message);
 });
 
-export const query = (text, params) => dbPool.query(text, params);
+export const query = async (text, params) => {
+  try {
+    const res = await dbPool.query(text, params);
+    isDbAvailable = true;
+    return res;
+  } catch (err) {
+    isDbAvailable = false;
+    dbProbePromise = null;
+    console.warn('[DATABASE QUERY WARN]', err.message);
+    throw err;
+  }
+};
 
+export const checkDbStatus = () => isDbAvailable;

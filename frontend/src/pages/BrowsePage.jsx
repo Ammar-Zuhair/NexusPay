@@ -5,8 +5,9 @@ import { ProductCard } from '../components/ProductCard';
 import { Search, SlidersHorizontal } from 'lucide-react';
 
 export const BrowsePage = () => {
-  const { lang, setActiveTab, setSelectedGameId, products, activeCategories } = useApp();
-  const [selectedCat, setSelectedCat] = useState('all');
+  const { lang, setActiveTab, setSelectedGameId, products, activeCategories, selectedCategoryId, setSelectedCategoryId } = useApp();
+  const selectedCat = selectedCategoryId || 'all';
+  const setSelectedCat = (id) => setSelectedCategoryId(id);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('popular');
 

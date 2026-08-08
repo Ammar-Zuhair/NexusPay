@@ -537,16 +537,16 @@ export const MOCK_GIFT_CARDS = MOCK_GAMES.filter(p =>
 // ─── User Orders ───
 export const MOCK_USER_ORDERS = [
   {
-    id: 'CW-884210', correlationId: 'CID-983728',
+    id: 'NP-884210', correlationId: 'CID-983728',
     date: '2026-08-03 10:14',
     productTitle: 'PUBG Mobile 600 + 60 UC', playerId: '5412896301',
-    priceUSD: 9.99, priceSAR: 37.50, status: 'DELIVERED', code: 'DIRECT_TOPUP_FULFILLED'
+    priceUSD: 9.99, priceSAR: 37.50, status: 'PENDING', code: null
   },
   {
-    id: 'CW-884209', correlationId: 'CID-441209',
+    id: 'NP-884209', correlationId: 'CID-441209',
     date: '2026-08-02 18:30',
     productTitle: 'Steam Wallet $10 Card', playerId: 'DIRECT_CODE',
-    priceUSD: 10.00, priceSAR: 37.50, status: 'DELIVERED', code: 'STEAM-9921-8812-3301'
+    priceUSD: 10.00, priceSAR: 37.50, status: 'PENDING', code: null
   }
 ];
 
@@ -594,7 +594,7 @@ export const MOCK_ADMIN_METRICS = {
 };
 
 export const MOCK_FX_RATES = {
-  USD: 1.0, EUR: 0.92, SAR: 3.75, AED: 3.67, YER: 250.0, EGP: 48.50
+  USD: 1.0, EUR: 0.92, SAR: 3.75, AED: 3.67, EGP: 48.50
 };
 
 export const SUPPORTED_COUNTRIES = [

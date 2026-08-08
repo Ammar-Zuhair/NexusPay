@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="132" viewBox="0 0 320 132" fill="none">
+  <defs>
+    <!-- Dark Background -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b111e"/>
+      <stop offset="50%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#0b111e"/>
+    </linearGradient>
+
+    <!-- Metallic Blue Gradient for N -->
+    <linearGradient id="nBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="50%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <!-- Gold Edge Metallic Gradient -->
+    <linearGradient id="goldEdgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="50%" stop-color="#fde047"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Neon Pulse Glow Line -->
+    <linearGradient id="pulseGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="320" height="132" rx="16" fill="url(#bgGrad)"/>
+  <rect x="1" y="1" width="318" height="130" rx="15" fill="none" stroke="#1e293b" stroke-width="1.5"/>
+
+  <!-- Centered / Left Layout: 3D Metallic N Emblem -->
+  <g transform="translate(24, 21)" filter="url(#neonGlow)">
+    <!-- Metallic Gold Outer Shadow Base -->
+    <path d="M 12 85 L 12 18 L 32 18 L 62 62 L 62 18 L 78 18 L 78 85 L 58 85 L 28 41 L 28 85 Z" fill="url(#goldEdgeGrad)" />
+    
+    <!-- Inner Sapphire Blue Body -->
+    <path d="M 16 81 L 16 22 L 30 22 L 58 64 L 58 22 L 74 22 L 74 81 L 60 81 L 32 39 L 32 81 Z" fill="url(#nBlueGrad)" />
+
+    <!-- Pulse ECG Line Effect -->
+    <path d="M 8 50 L 28 50 L 34 38 L 42 62 L 50 44 L 56 50 L 82 50" fill="none" stroke="url(#pulseGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- NEXUSPAY Main Typography -->
+  <text x="118" y="65" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="28" fill="#ffffff" letter-spacing="1">NEXUS<tspan fill="#38bdf8">PAY</tspan></text>
+
+  <!-- Tagline -->
+  <text x="119" y="86" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="8.5" fill="#94a3b8" letter-spacing="1.2">PREMIUM GAMING &amp; DIGITAL PAYMENTS</text>
+</svg>

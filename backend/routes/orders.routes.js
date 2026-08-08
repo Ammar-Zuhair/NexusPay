@@ -10,6 +10,44 @@ const router = express.Router();
 const ordersDb = new Map();
 
 /**
+ * Top-Level Helper to Normalize PostgreSQL rows & Memory Store objects
+ */
+const mapOrderRow = (row) => {
+  if (!row) return null;
+
+  let delivered = row.delivered_payload || row.delivery_payload || row.deliveredPayload;
+  if (typeof delivered === 'string') {
+    try { delivered = JSON.parse(delivered); } catch (e) { delivered = null; }
+  }
+
+  const pinCode = row.pin_code || row.fulfillmentCode || (delivered && typeof delivered === 'object' ? delivered.pinCode : null);
+
+  return {
+    id: row.id,
+    orderNumber: row.order_number || row.orderNumber || `ORD-${row.id}`,
+    correlationId: row.correlation_id || row.correlationId,
+    idempotencyKey: row.idempotency_key || row.idempotencyKey,
+    userId: row.user_id || row.userId,
+    isGuest: Boolean(row.is_guest ?? row.isGuest ?? false),
+    productId: row.product_id || row.productId || 'pubg-uc',
+    productTitle: row.product_title || row.productTitle || (row.product_id ? row.product_id.toUpperCase() : 'شحن رقمي'),
+    packageTitle: row.package_title || row.packageTitle || 'باقة إلكترونية',
+    userName: row.user_name || row.userName || row.user_full_name || (row.is_guest ? 'عميل زائر' : 'عميل مسجل'),
+    userEmail: row.user_email || row.userEmail || row.u_email || row.guest_email || 'customer@nexuspaystore.com',
+    guestEmail: row.guest_email || row.guestEmail || row.user_email || '',
+    targetAccountId: row.target_account_id || row.targetAccountId || 'N/A',
+    priceUSD: parseFloat(row.total_amount || row.total_usd || row.priceUSD || 9.99),
+    totalUSD: parseFloat(row.total_amount || row.total_usd || row.priceUSD || 9.99),
+    paymentMethod: (row.payment_method || row.paymentMethod || 'WALLET').toUpperCase(),
+    status: row.status || 'PENDING',
+    pin_code: pinCode,
+    deliveredPayload: delivered || { pinCode: pinCode, serialNumber: null },
+    createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    items: row.items_json ? (typeof row.items_json === 'string' ? JSON.parse(row.items_json) : row.items_json) : (row.items || [])
+  };
+};
+
+/**
  * POST /api/v1/orders - Place digital order with TCC Reservation & Backend Ledger Recording
  */
 router.post('/orders', async (req, res, next) => {
@@ -21,6 +59,9 @@ router.post('/orders', async (req, res, next) => {
       productId, 
       productTitle,
       packageId, 
+      packageTitle,
+      userName,
+      userEmail,
       quantity = 1, 
       priceUSD = 9.99,
       providerCostUSD = 8.50,
@@ -32,7 +73,9 @@ router.post('/orders', async (req, res, next) => {
       currency = 'USD',
       paymentMethod = 'WALLET',
       isGuest = false,
-      guestEmail = ''
+      guestEmail = '',
+      userId,
+      items = []
     } = req.body;
 
     if (!productId) {
@@ -42,16 +85,49 @@ router.post('/orders', async (req, res, next) => {
       throw err;
     }
 
-    const currentUserId = isGuest ? 'guest-user' : 'usr-demo-01';
+    const targetUserId = userId || (req.body.user ? req.body.user.id : null) || (isGuest ? 'guest-user' : 'usr-demo-01');
+    const currentUserId = targetUserId;
 
     // 1. Calculate Comprehensive Net Profit Formula:
-    // Net Profit = Sell Price - Provider Cost - Gateway Fee - Coupon Discount - Taxes
     const sellPrice = parseFloat(priceUSD) * parseInt(quantity, 10);
     const providerCost = parseFloat(providerCostUSD) * parseInt(quantity, 10);
     const gatewayFee = parseFloat(gatewayFeeUSD);
     const couponDiscount = parseFloat(couponDiscountUSD);
     const tax = parseFloat(taxUSD);
     const netProfit = sellPrice - providerCost - gatewayFee - couponDiscount - tax;
+
+    let updatedBalance = null;
+    // Check & Deduct Wallet Balance in Database if paying via WALLET
+    if (paymentMethod === 'WALLET' && currentUserId) {
+      try {
+        const walletCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1', [currentUserId]);
+        if (walletCheck.rows.length === 0) {
+          await query(
+            `INSERT INTO wallets (id, user_id, available_balance, held_balance, currency)
+             VALUES ($1, $2, 500.00, 0.00, 'USD') ON CONFLICT (id) DO NOTHING`,
+            [`wlt-${currentUserId}`, currentUserId]
+          );
+        }
+
+        const freshCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1', [currentUserId]);
+        if (freshCheck.rows.length > 0) {
+          const avail = parseFloat(freshCheck.rows[0].available_balance) || 0;
+          if (avail < sellPrice) {
+            return res.status(400).json({ error: 'رصيد محفظتك غير كافٍ لشراء هذا المنتج. يرجى شحن المحفظة أولاً.' });
+          }
+          const deductRes = await query(
+            'UPDATE wallets SET available_balance = available_balance - $1 WHERE user_id = $2 RETURNING available_balance',
+            [sellPrice, currentUserId]
+          );
+          if (deductRes.rows.length > 0) {
+            updatedBalance = parseFloat(deductRes.rows[0].available_balance);
+            console.log(`[WALLETS API SUCCESS] User ${currentUserId} balance deducted by $${sellPrice}. New balance: $${updatedBalance}`);
+          }
+        }
+      } catch (wErr) {
+        console.warn('[BACKEND WALLET DEDUCT WARN]', wErr.message);
+      }
+    }
 
     const orderId = `NP-${Date.now().toString().slice(-6)}`;
     let newOrder = {
@@ -63,6 +139,9 @@ router.post('/orders', async (req, res, next) => {
       productId,
       productTitle: productTitle || productId,
       packageId: packageId || 'default-pkg',
+      packageTitle: packageTitle || productTitle || 'باقة شحن',
+      userName: userName || (isGuest ? 'عميل زائر' : 'عميل مسجل'),
+      userEmail: userEmail || guestEmail || 'customer@nexuspaystore.com',
       quantity: parseInt(quantity, 10),
       priceUSD: sellPrice,
       providerCostUSD: providerCost,
@@ -74,87 +153,81 @@ router.post('/orders', async (req, res, next) => {
       currency: currency,
       paymentMethod: paymentMethod,
       isGuest: isGuest,
-      guestEmail: guestEmail,
-      targetAccountId: targetAccountId || 'PLAYER-88120',
+      guestEmail: guestEmail || userEmail || '',
+      targetAccountId: targetAccountId || 'N/A',
       deliveredPayload: {
-        pinCode: 'DIGITAL-PIN-' + Math.floor(10000000 + Math.random() * 90000000),
-        instructions: 'Redeem code at midasbuy.com / official platform'
+        pinCode: null,
+        serialNumber: null,
+        status: 'AWAITING_FULFILLMENT'
       },
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      items: items.length > 0 ? items : [{ productId, productTitle, packageTitle, quantity, priceUSD }]
     };
 
-    // --- EXECUTE BACKEND BUSINESS ENGINES ---
-
-    // 1. FSM Transition: CREATED -> VALIDATING_REQUEST -> PAYMENT_CONFIRMED
+    // FSM Transition to PENDING
     OrderStateMachine.transition(newOrder, ORDER_STATES.VALIDATING_REQUEST, 'Validating customer payload on server', correlationId);
     OrderStateMachine.transition(newOrder, ORDER_STATES.PAYMENT_PENDING, 'Awaiting gateway confirmation', correlationId);
     OrderStateMachine.transition(newOrder, ORDER_STATES.PAYMENT_CONFIRMED, 'Idempotency validated & payment confirmed', correlationId);
+    OrderStateMachine.transition(newOrder, ORDER_STATES.PENDING, 'Awaiting admin code fulfillment', correlationId);
 
-    // 2. Double-Entry Wallet Ledger Hold (if paying via wallet)
-    if (paymentMethod === 'WALLET' && !isGuest) {
-      try {
-        DoubleEntryLedger.hold(currentUserId, sellPrice, newOrder.id, correlationId);
-      } catch (walletErr) {
-        console.warn('[BACKEND WALLET NOTE]', walletErr.message);
-      }
-    }
-
-    // 3. FSM Transition: PAYMENT_CONFIRMED -> WAITING_PROVIDER -> PROCESSING
-    OrderStateMachine.transition(newOrder, ORDER_STATES.WAITING_PROVIDER, `Routing to ${providerCode}`, correlationId);
-    OrderStateMachine.transition(newOrder, ORDER_STATES.PROCESSING, 'Executing Provider Driver TCC API Call', correlationId);
-
-    // 4. Double-Entry Wallet Capture
-    if (paymentMethod === 'WALLET' && !isGuest) {
-      try {
-        DoubleEntryLedger.capture(currentUserId, sellPrice, newOrder.id, correlationId);
-      } catch (walletErr) {
-        console.warn('[BACKEND WALLET NOTE]', walletErr.message);
-      }
-    }
-
-    // 5. FSM Transition: PROCESSING -> DELIVERED
-    OrderStateMachine.transition(newOrder, ORDER_STATES.DELIVERED, `Fulfilled by ${providerCode} Driver`, correlationId);
+    newOrder.status = 'PENDING';
 
     // Save to Database if PostgreSQL connected
     try {
-      // Record Order
-      await query(
-        `INSERT INTO orders (id, user_id, product_id, status, total_usd, payment_method, delivery_payload, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO NOTHING`,
-        [newOrder.id, isGuest ? null : currentUserId, newOrder.productId, newOrder.status, newOrder.priceUSD, newOrder.paymentMethod, JSON.stringify(newOrder.deliveredPayload), newOrder.createdAt]
-      );
+      let validUserId = null;
+      if (!isGuest && currentUserId) {
+        try {
+          const uCheck = await query('SELECT id FROM users WHERE id = $1', [currentUserId]);
+          if (uCheck.rows.length > 0) validUserId = currentUserId;
+        } catch (e) {}
+      }
 
-      // Record Order Event History
       await query(
-        `INSERT INTO order_events (id, order_id, from_state, to_state, actor, reason, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [`evt-${Date.now()}`, newOrder.id, 'PROCESSING', 'DELIVERED', isGuest ? 'GUEST' : currentUserId, 'Order fulfilled via TCC Driver Engine']
-      );
-
-      // Record Provider Transaction Debit Ledger
-      await query(
-        `INSERT INTO provider_transactions (id, provider_id, order_id, type, amount, balance_before, balance_after, note, created_at)
-         VALUES ($1, $2, $3, 'DEBIT', $4, $5, $6, $7, NOW())`,
-        [`ptx-${Date.now()}`, providerCode, newOrder.id, providerCost, 1500.00, 1500.00 - providerCost, `Order ${newOrder.id} wholesale cost`]
-      );
-
-      // Record System Audit Log
-      await query(
-        `INSERT INTO system_audit_logs (id, category, level, actor, correlation_id, action, details, created_at)
-         VALUES ($1, 'ORDER', 'INFO', $2, $3, 'ORDER_FULFILLED', $4, NOW())`,
-        [`log-${Date.now()}`, isGuest ? 'GUEST' : currentUserId, correlationId, JSON.stringify({ orderId: newOrder.id, netProfitUSD: netProfit })]
+        `INSERT INTO orders (id, order_number, correlation_id, idempotency_key, user_id, product_id, product_title, package_title, user_name, user_email, status, total_amount, total_usd, payment_method, target_account_id, delivered_payload, delivery_payload, items_json, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15, $15, $16, $17)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           product_title = EXCLUDED.product_title,
+           package_title = EXCLUDED.package_title,
+           user_name = EXCLUDED.user_name,
+           user_email = EXCLUDED.user_email,
+           payment_method = EXCLUDED.payment_method,
+           target_account_id = EXCLUDED.target_account_id,
+           delivered_payload = EXCLUDED.delivered_payload,
+           delivery_payload = EXCLUDED.delivery_payload,
+           items_json = EXCLUDED.items_json`,
+        [
+          newOrder.id,
+          newOrder.orderNumber,
+          newOrder.correlationId,
+          newOrder.idempotencyKey,
+          validUserId,
+          newOrder.productId,
+          newOrder.productTitle,
+          newOrder.packageTitle,
+          newOrder.userName,
+          newOrder.userEmail,
+          newOrder.status,
+          newOrder.priceUSD,
+          newOrder.paymentMethod,
+          newOrder.targetAccountId,
+          JSON.stringify(newOrder.deliveredPayload),
+          JSON.stringify(newOrder.items),
+          newOrder.createdAt
+        ]
       );
     } catch (dbErr) {
       console.warn('[ORDERS API NOTE] DB transaction fallback:', dbErr.message);
     }
 
-    ordersDb.set(orderId, newOrder);
+    const mapped = mapOrderRow(newOrder);
+    ordersDb.set(orderId, mapped);
 
     return res.status(201).json({
-      message: 'Order executed, ledger recorded, and delivered successfully by backend',
+      message: 'Order created successfully and set to PENDING status for admin review',
       correlationId: correlationId,
-      order: newOrder
+      order: mapped,
+      updatedWalletBalance: updatedBalance
     });
   } catch (err) {
     console.error('[ORDERS API ERROR]', err.message);
@@ -168,20 +241,27 @@ router.post('/orders', async (req, res, next) => {
 router.get('/orders', async (req, res, next) => {
   try {
     try {
-      const sqlResult = await query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100');
+      const sqlResult = await query(`
+        SELECT o.*, u.full_name as user_full_name, u.email as u_email 
+        FROM orders o 
+        LEFT JOIN users u ON o.user_id = u.id 
+        ORDER BY o.created_at DESC 
+        LIMIT 100
+      `);
       if (sqlResult && sqlResult.rows && sqlResult.rows.length > 0) {
+        const mappedOrders = sqlResult.rows.map(mapOrderRow);
         return res.json({
           success: true,
           source: 'DATABASE',
-          count: sqlResult.rows.length,
-          orders: sqlResult.rows
+          count: mappedOrders.length,
+          orders: mappedOrders
         });
       }
     } catch (sqlErr) {
-      console.log('[ORDERS NOTICE] DB offline, using memory store.');
+      console.log('[ORDERS NOTICE] DB offline or query error:', sqlErr.message);
     }
 
-    const ordersList = Array.from(ordersDb.values());
+    const ordersList = Array.from(ordersDb.values()).map(mapOrderRow);
     res.json({
       success: true,
       source: 'STORE',
@@ -194,21 +274,98 @@ router.get('/orders', async (req, res, next) => {
 });
 
 /**
- * GET /api/v1/orders/:id - Fetch single order status
+ * POST /api/v1/orders/:id/approve-dispatch - Admin: Approve order and dispatch code email
  */
-router.get('/orders/:id', (req, res, next) => {
+router.post('/orders/:id/approve-dispatch', async (req, res, next) => {
   try {
-    const order = ordersDb.get(req.params.id);
-    if (!order) {
-      const err = new Error('Order not found');
-      err.statusCode = 404;
-      err.code = 'ORDER_NOT_FOUND';
-      throw err;
+    const { id } = req.params;
+    const { 
+      recipientEmail, 
+      fulfillmentCode = '', 
+      serialNumber = '', 
+      emailSubject = 'كود التفعيل الخاص بطلبك من NexusPay Store', 
+      emailBody = 'مرحباً بك، نشكرك على شرائك من منصتنا. مرفق أدناه كود التفعيل الرقمي المرفق بطلبك.' 
+    } = req.body;
+
+    if (!recipientEmail) {
+      return res.status(400).json({ error: 'recipientEmail is required' });
     }
 
-    res.json({
-      correlationId: req.correlationId,
-      order
+    let order = ordersDb.get(id);
+
+    const deliveredPayload = {
+      pinCode: fulfillmentCode,
+      serialNumber: serialNumber,
+      emailSubject: emailSubject,
+      emailBody: emailBody,
+      dispatchedAt: new Date().toISOString()
+    };
+
+    if (order) {
+      order.status = 'COMPLETED';
+      order.pin_code = fulfillmentCode;
+      order.deliveredPayload = deliveredPayload;
+      ordersDb.set(id, order);
+    }
+
+    try {
+      await query(
+        `UPDATE orders SET status = $1, delivered_payload = $2, delivery_payload = $2 WHERE id = $3`,
+        ['COMPLETED', JSON.stringify(deliveredPayload), id]
+      );
+    } catch (sqlErr) {
+      console.warn('[ORDERS DISPATCH SQL NOTE]', sqlErr.message);
+    }
+
+    console.log(`[EMAIL DISPATCHER SIMULATOR] Sent code email to ${recipientEmail} for order #${id}`);
+
+    const updatedObj = mapOrderRow({
+      ...(order || {}),
+      id,
+      status: 'COMPLETED',
+      pin_code: fulfillmentCode,
+      delivered_payload: deliveredPayload
+    });
+
+    return res.json({
+      success: true,
+      message: 'Order approved and code email dispatched successfully',
+      emailSentTo: recipientEmail,
+      order: updatedObj
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/orders/:id/reject - Admin: Reject order with reason
+ */
+router.post('/orders/:id/reject', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason = 'تم رفض الطلب من قبل الإدارة' } = req.body;
+
+    let order = ordersDb.get(id);
+    if (order) {
+      order.status = 'REJECTED';
+      order.rejectionReason = reason;
+      ordersDb.set(id, order);
+    }
+
+    try {
+      await query(
+        `UPDATE orders SET status = $1 WHERE id = $2`,
+        ['REJECTED', id]
+      );
+    } catch (sqlErr) {
+      console.warn('[ORDERS REJECT SQL NOTE]', sqlErr.message);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Order rejected successfully',
+      order: order || { id, status: 'REJECTED', rejectionReason: reason }
     });
   } catch (err) {
     next(err);

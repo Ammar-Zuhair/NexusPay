@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { OptimizedImage } from '../components/OptimizedImage';
-import { 
-  MOCK_ADMIN_METRICS, 
+import { ImageUploadInput } from '../components/ImageUploadInput';
+import {
+  MOCK_ADMIN_METRICS,
   MOCK_PROVIDERS_HEALTH,
   MOCK_TRACE_SCENARIO,
   SUPPORTED_COUNTRIES
@@ -29,20 +30,20 @@ import { TamperProofAuditService } from '../services/audit/TamperProofAuditServi
 import { OPERATIONAL_RUNBOOKS } from '../services/runbook/OperationalRunbookService';
 import { runEnterpriseTestSuite } from '../tests/EnterpriseSuite.test';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import { API_BASE_URL } from '../utils/api.js';
 
-import { 
-  TrendingUp, Server, ShieldCheck, Terminal, Database, 
-  DollarSign, SlidersHorizontal, AlertTriangle, Radio, HardDrive, Key, 
-  CheckCircle2, Zap, Lock, RefreshCw, Users, FileText, Play, Building, Award, Shield,
-  Plus, PlusCircle, Trash2, Edit3, ShoppingBag, Layers, X, Globe, Cpu, Check, Image as ImageIcon,
-  ToggleLeft, ToggleRight, Tag
+import {
+  TrendingUp, Server, ShieldCheck, Terminal, Database,
+  DollarSign, SlidersHorizontal, AlertTriangle, Radio, HardDrive, Key,
+  CheckCircle2, Zap, Lock, RefreshCw, Users, FileText, Play, Building, Award, Shield, Clock,
+  Plus, PlusCircle, Trash2, Edit3, ShoppingBag, ShoppingCart, Layers, X, Globe, Cpu, Check, Image as ImageIcon,
+  ToggleLeft, ToggleRight, Tag, MessageSquare, Mail
 } from 'lucide-react';
 
 export const AdminDashboardPage = () => {
-  const { 
-    lang, 
-    addToast, 
+  const {
+    lang,
+    addToast,
     formatCurrency,
     orders = [],
     products = [],
@@ -62,10 +63,218 @@ export const AdminDashboardPage = () => {
     featureFlags = {},
     toggleFeatureFlag,
     systemLogs = [],
-    logSystemEvent
+    logSystemEvent,
+    depositRequests = [],
+    approveDepositRequest,
+    rejectDepositRequest,
+    yemenBanksList = [],
+    addYemenBank,
+    deleteYemenBank
   } = useApp();
 
   const [activeAdminTab, setActiveAdminTab] = useState('financial-analytics');
+
+  // Yemen Deposit & Banks Management States
+  const [depositSearchQuery, setDepositSearchQuery] = useState('');
+  const [depositStatusFilter, setDepositStatusFilter] = useState('PENDING_VERIFICATION');
+
+  const [showAddYemenBankModal, setShowAddYemenBankModal] = useState(false);
+  const [newBankForm, setNewBankForm] = useState({
+    name: '',
+    region: 'NORTH',
+    appName: '',
+    recipientName: '',
+    accountNumber: '',
+    whatsappPhone: '+967775479340',
+    imageUrl: '',
+    notes: ''
+  });
+
+  const handleAddYemenBankSubmit = async (e) => {
+    e.preventDefault();
+    if (!newBankForm.name || !newBankForm.accountNumber || !newBankForm.recipientName) {
+      addToast(lang === 'ar' ? 'يرجى إدخال اسم الحساب، اسم المستلم، ورقم الحساب/الجوال' : 'Please fill required fields', 'error');
+      return;
+    }
+    const success = await addYemenBank(newBankForm);
+    if (success) {
+      setShowAddYemenBankModal(false);
+      setNewBankForm({ name: '', region: 'NORTH', appName: '', recipientName: '', accountNumber: '', whatsappPhone: '+967775479340', imageUrl: '', notes: '' });
+    }
+  };
+
+  // Product Orders Management & Email Dispatcher State
+  const [adminOrdersList, setAdminOrdersList] = useState([]);
+  const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+
+  const [showOrderEmailModal, setShowOrderEmailModal] = useState(false);
+  const [selectedOrderForDispatch, setSelectedOrderForDispatch] = useState(null);
+  const [orderEmailForm, setOrderEmailForm] = useState({
+    recipientEmail: '',
+    emailSubject: '',
+    productTitle: '',
+    fulfillmentCode: '',
+    serialNumber: '',
+    emailBody: ''
+  });
+
+  // Customer Complaints & Contact Messages State
+  const [complaintsList, setComplaintsList] = useState([]);
+  const [complaintsFilter, setComplaintsFilter] = useState('ALL');
+  const [complaintsSearch, setComplaintsSearch] = useState('');
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
+  const [complaintResponseForm, setComplaintResponseForm] = useState({
+    status: 'RESOLVED',
+    notes: ''
+  });
+
+  const fetchComplaints = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/complaints`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.complaints) setComplaintsList(data.complaints);
+      }
+    } catch (err) {
+      console.warn('[COMPLAINTS FETCH NOTE]', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchComplaints();
+  }, []);
+
+  const handleUpdateComplaintStatus = async (id, status, notes) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/complaints/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, adminNotes: notes })
+      });
+      if (res.ok) {
+        setComplaintsList(prev => prev.map(c => c.id === id ? { ...c, status, adminNotes: notes } : c));
+        addToast(lang === 'ar' ? 'تم تحديث حالة الشكوى وحفظ ملاحظات الرد!' : 'Complaint status & response updated!');
+        setShowComplaintModal(false);
+      }
+    } catch (err) {
+      addToast(lang === 'ar' ? 'فشل تحديث الشكوى' : 'Update failed', 'error');
+    }
+  };
+
+  const handleDeleteComplaint = async (id) => {
+    if (!window.confirm(lang === 'ar' ? 'هل أنت تأكد من حذف هذه الشكوى؟' : 'Delete this complaint?')) return;
+    try {
+      await fetch(`${API_BASE_URL}/complaints/${id}`, { method: 'DELETE' });
+      setComplaintsList(prev => prev.filter(c => c.id !== id));
+      addToast(lang === 'ar' ? 'تم حذف الشكوى' : 'Complaint deleted');
+    } catch (err) {
+      addToast(lang === 'ar' ? 'فشل الحذف' : 'Delete failed', 'error');
+    }
+  };
+
+  const fetchBackendOrders = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders`);
+      const data = await res.json();
+      if (res.ok && data.orders) {
+        setAdminOrdersList(data.orders);
+      }
+    } catch (err) {
+      console.warn('[ADMIN ORDERS FETCH] Notice:', err.message);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchBackendOrders();
+  }, []);
+
+  const handleOpenDispatchModal = (order) => {
+    setSelectedOrderForDispatch(order);
+    const targetEmail = order.guestEmail || order.userEmail || order.targetAccountId || 'customer@domain.com';
+    const prodTitle = order.productTitle || order.title || 'بطاقة شحن رقمية';
+    const initialCode = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.pinCode : null) || order.pin_code || '';
+    const initialSerial = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.serialNumber : null) || order.serial_number || '';
+    const orderId = order.id || 'NP-1001';
+
+    const defaultBody = `مرحباً بك،
+
+شكراً لتسوقك من منصة NexusPay Store.
+يسعدنا إبلاغك بأنه تم التثبت والموافقة على طلبك رقم (#${orderId}) وإتمام تسليمه بنجاح!
+
+تفاصيل المنتج المسلم:
+-----------------------------------------
+اسم المنتج: ${prodTitle}
+الكود الرقمي / الرمز: ${initialCode || '[أدخل الكود هنا]'}
+الرقم التسلسلي (S/N): ${initialSerial || '[الرقم التسلسلي]'}
+-----------------------------------------
+
+تعليمات الاستخدام والتفعيل:
+يرجى إدخال الكود المرفق أعلاه في خانة التفعيل الخاصة بـ ${prodTitle}.
+
+تحياتنا،
+فريق دعم وتنفيذ طلبات NexusPay Store`;
+
+    setOrderEmailForm({
+      recipientEmail: targetEmail,
+      emailSubject: `تأكيد تسليم كود منتج: ${prodTitle} (طلب #${orderId})`,
+      productTitle: prodTitle,
+      fulfillmentCode: initialCode,
+      serialNumber: initialSerial,
+      emailBody: defaultBody
+    });
+    setShowOrderEmailModal(true);
+  };
+
+  const handleSendOrderEmailSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedOrderForDispatch) return;
+    if (!orderEmailForm.fulfillmentCode || !orderEmailForm.recipientEmail) {
+      addToast(lang === 'ar' ? 'يرجى إدخال البريد الإلكتروني وكود المنتج' : 'Email and code are required', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${selectedOrderForDispatch.id}/approve-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderEmailForm)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(lang === 'ar' ? `تم اعتماد الطلب وإرسال الكود بنجاح إلى: ${orderEmailForm.recipientEmail}` : 'Email dispatched successfully!');
+        setShowOrderEmailModal(false);
+        fetchBackendOrders();
+      } else {
+        throw new Error(data.error || 'Failed to dispatch email');
+      }
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل إرسال البريد: ' : 'Email error: ') + err.message, 'error');
+    }
+  };
+
+  const handleRejectOrderSubmit = async (orderId) => {
+    const reason = prompt(lang === 'ar' ? 'أدخل سبب رفض الطلب:' : 'Enter rejection reason:', 'معلومات الحساب غير مكتملة');
+    if (reason === null) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${orderId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(lang === 'ar' ? 'تم رفض الطلب وتغيير حالته إلى مرفوض' : 'Order rejected!');
+        fetchBackendOrders();
+      } else {
+        throw new Error(data.error || 'Failed to reject order');
+      }
+    } catch (err) {
+      addToast((lang === 'ar' ? 'فشل إكمال الرفض: ' : 'Error: ') + err.message, 'error');
+    }
+  };
 
   // Modal Visibility States
   const [showAddProdModal, setShowAddProdModal] = useState(false);
@@ -192,7 +401,7 @@ export const AdminDashboardPage = () => {
       deliveryInfo: {
         requiresUID: prodForm.requiresUID === true || prodForm.requiresUID === 'true',
         requiresServer: prodForm.requiresServer === true || prodForm.requiresServer === 'true',
-        isCodeDelivery: ['GIFT_CARD','ACTIVATION_KEY','DIGITAL_CODE','SUBSCRIPTION'].includes(prodForm.productType),
+        isCodeDelivery: ['GIFT_CARD', 'ACTIVATION_KEY', 'DIGITAL_CODE', 'SUBSCRIPTION'].includes(prodForm.productType),
       },
       description: {
         ar: prodForm.descAr || 'خدمة رقمية فورية موثوقة ومضمونة 100٪.',
@@ -236,7 +445,7 @@ export const AdminDashboardPage = () => {
       deliveryInfo: {
         requiresUID: prodForm.requiresUID === true || prodForm.requiresUID === 'true',
         requiresServer: prodForm.requiresServer === true || prodForm.requiresServer === 'true',
-        isCodeDelivery: ['GIFT_CARD','ACTIVATION_KEY','DIGITAL_CODE','SUBSCRIPTION'].includes(prodForm.productType),
+        isCodeDelivery: ['GIFT_CARD', 'ACTIVATION_KEY', 'DIGITAL_CODE', 'SUBSCRIPTION'].includes(prodForm.productType),
       },
       description: { ar: prodForm.descAr, en: prodForm.descEn }
     };
@@ -417,7 +626,7 @@ export const AdminDashboardPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 mt-12">
-      
+
       {/* Header Banner */}
       <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-8 mb-8 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
@@ -434,14 +643,14 @@ export const AdminDashboardPage = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button 
+          <button
             onClick={() => setShowAddProdModal(true)}
             className="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-2xl transition shadow-lg shadow-blue-600/25"
           >
             <PlusCircle className="w-4 h-4" />
             {lang === 'ar' ? 'إضافة منتج جديد' : '+ Create Product'}
           </button>
-          <button 
+          <button
             onClick={() => setShowAddProvModal(true)}
             className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-2xl transition shadow-lg shadow-emerald-600/25"
           >
@@ -484,6 +693,10 @@ export const AdminDashboardPage = () => {
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 border-b border-slate-200 dark:border-slate-800">
         {[
+          { id: 'customer-complaints', label: lang === 'ar' ? 'شكاوى واستفسارات العملاء' : 'Customer Complaints & Tickets', icon: MessageSquare },
+          { id: 'orders-manager', label: lang === 'ar' ? 'مراجعة وتلبية طلبات الشراء والأكواد' : 'Orders & Code Delivery Hub', icon: ShoppingCart },
+          { id: 'pending-deposits', label: lang === 'ar' ? 'طلبات الإيداع المعلقة (اليمن)' : 'Yemen Pending Deposits', icon: Clock },
+          { id: 'yemen-banks-manager', label: lang === 'ar' ? 'إدارة البنوك والمحافظ اليمنية' : 'Yemen Banks & Wallets Manager', icon: Building },
           { id: 'financial-analytics', label: lang === 'ar' ? 'التحليلات والمعلومات المالية' : 'Financial Intelligence & Analytics', icon: DollarSign },
           { id: 'catalog-editor', label: lang === 'ar' ? 'إدارة المنتجات والباقات' : 'Products & Services Catalog', icon: ShoppingBag },
           { id: 'categories-editor', label: lang === 'ar' ? 'إدارة الأقسام (11)' : 'Categories & Visibility (11)', icon: Layers },
@@ -503,11 +716,10 @@ export const AdminDashboardPage = () => {
             <button
               key={tab.id}
               onClick={() => setActiveAdminTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black whitespace-nowrap transition-all ${
-                isActive
+              className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black whitespace-nowrap transition-all ${isActive
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                   : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-              }`}
+                }`}
             >
               <Icon className="w-4 h-4" />
               {tab.label}
@@ -515,6 +727,775 @@ export const AdminDashboardPage = () => {
           );
         })}
       </div>
+
+      {/* TAB: CUSTOMER COMPLAINTS & TICKETS HUB */}
+      {activeAdminTab === 'customer-complaints' && (
+        <div className="space-y-6 animate-fade-in">
+          
+          {/* Header & Metrics */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <MessageSquare className="w-6 h-6 text-blue-600 dark:text-cyan-400" />
+                  <span>{lang === 'ar' ? 'مركز استقبال ومتابعة شكاوى واستفسارات العملاء' : 'Customer Complaints & Support Tickets'}</span>
+                </h2>
+                <p className="text-xs text-slate-500 font-bold mt-1">
+                  {lang === 'ar' 
+                    ? 'تصلك هنا جميع الرسائل والشكاوى والاستفسارات المباشرة المرسلة من العملاء عبر صفحة (تواصل معنا).' 
+                    : 'All customer contact messages, support tickets, and complaints arrive here.'}
+                </p>
+              </div>
+
+              <button
+                onClick={fetchComplaints}
+                className="px-4 py-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-cyan-400 text-xs font-black rounded-xl hover:bg-blue-100 transition flex items-center gap-2 self-start md:self-auto"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>{lang === 'ar' ? 'تحديث الشكاوى' : 'Refresh Tickets'}</span>
+              </button>
+            </div>
+
+            {/* Metrics Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 rounded-2xl">
+                <p className="text-[11px] font-bold text-slate-400">{lang === 'ar' ? 'إجمالي الرسائل والشكاوى' : 'Total Tickets'}</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{complaintsList.length}</p>
+              </div>
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{lang === 'ar' ? 'معلقة بانتظار المراجعة' : 'Pending Review'}</p>
+                <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                  {complaintsList.filter(c => c.status === 'PENDING').length}
+                </p>
+              </div>
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-blue-600 dark:text-blue-400">{lang === 'ar' ? 'قيد المعالجة والمتابعة' : 'In Progress'}</p>
+                <p className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
+                  {complaintsList.filter(c => c.status === 'IN_PROGRESS').length}
+                </p>
+              </div>
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">{lang === 'ar' ? 'محلولة ومجاب عليها' : 'Resolved'}</p>
+                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                  {complaintsList.filter(c => c.status === 'RESOLVED').length}
+                </p>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+              <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                {['ALL', 'PENDING', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'].map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setComplaintsFilter(st)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap ${complaintsFilter === st
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                  >
+                    {st === 'ALL' && (lang === 'ar' ? 'كافة الشكاوى' : 'All Tickets')}
+                    {st === 'PENDING' && (lang === 'ar' ? 'معلقة ⏳' : 'Pending')}
+                    {st === 'IN_PROGRESS' && (lang === 'ar' ? 'قيد المعالجة 🔄' : 'In Progress')}
+                    {st === 'RESOLVED' && (lang === 'ar' ? 'محلولة ✓' : 'Resolved')}
+                    {st === 'REJECTED' && (lang === 'ar' ? 'مرفوضة ✕' : 'Rejected')}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={complaintsSearch}
+                onChange={e => setComplaintsSearch(e.target.value)}
+                placeholder={lang === 'ar' ? 'ابحث باسم العميل أو البريد أو الكود...' : 'Search by name, email, ID...'}
+                className="w-full sm:w-64 px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Complaints Table */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right rtl:text-right text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-extrabold uppercase">
+                  <tr>
+                    <th className="py-4 px-4">رقم الشكوى</th>
+                    <th className="py-4 px-4">العميل / البريد</th>
+                    <th className="py-4 px-4">موضوع الشكوى</th>
+                    <th className="py-4 px-4">محتوى الرسالة</th>
+                    <th className="py-4 px-4">التاريخ</th>
+                    <th className="py-4 px-4">الحالة</th>
+                    <th className="py-4 px-4 text-center">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                  {complaintsList
+                    .filter(c => complaintsFilter === 'ALL' || c.status === complaintsFilter)
+                    .filter(c => !complaintsSearch || (c.name + c.email + c.id + c.message).toLowerCase().includes(complaintsSearch.toLowerCase()))
+                    .map(c => (
+                      <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                        <td className="py-4 px-4 font-mono font-black text-blue-600 dark:text-cyan-400">{c.id}</td>
+                        <td className="py-4 px-4">
+                          <p className="font-extrabold text-slate-900 dark:text-white">{c.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{c.email}</p>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {c.subject === 'TOPUP' ? 'مساعدة شحن محفظة' : c.subject === 'ORDER' ? 'مشكلة طلب / كود' : c.subject === 'BUSINESS' ? 'شراكة تجارية' : 'استفسار عام'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 max-w-xs truncate text-slate-600 dark:text-slate-400" title={c.message}>
+                          {c.message}
+                        </td>
+                        <td className="py-4 px-4 text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                          {c.createdAt ? new Date(c.createdAt).toLocaleString('ar-YE', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black inline-block ${
+                            c.status === 'RESOLVED'
+                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                              : c.status === 'IN_PROGRESS'
+                                ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                : c.status === 'REJECTED'
+                                  ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                  : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                            }`}>
+                            {c.status === 'RESOLVED' ? 'محلولة ✓' : c.status === 'IN_PROGRESS' ? 'قيد المتابعة 🔄' : c.status === 'REJECTED' ? 'مرفوضة ✕' : 'معلقة ⏳'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedComplaint(c);
+                                setComplaintResponseForm({ status: c.status || 'RESOLVED', notes: c.adminNotes || '' });
+                                setShowComplaintModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[11px] font-extrabold shadow-sm transition"
+                            >
+                              معاينة والرد
+                            </button>
+                            <button
+                              onClick={() => handleDeleteComplaint(c.id)}
+                              className="p-1.5 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 rounded-xl transition"
+                              title="حذف الشكوى"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  {complaintsList.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 font-extrabold">
+                        لا توجد أي شكاوى أو استفسارات مسجلة حالياً.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: ORDERS FULFILLMENT & CODE EMAIL DISPATCHER HUB */}
+      {activeAdminTab === 'orders-manager' && (
+        <div className="space-y-6 animate-fade-in">
+          
+          {/* Header & Metrics */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShoppingBag className="w-6 h-6 text-blue-600 dark:text-cyan-400" />
+                  <span>{lang === 'ar' ? 'مركز مراجعة وتلبية طلبات الشراء والأكواد الرقمية' : 'Orders Fulfillment & Code Email Dispatcher'}</span>
+                </h2>
+                <p className="text-xs text-slate-500 font-bold mt-1">
+                  {lang === 'ar' 
+                    ? 'تابع الطلبات التي قمت بمعالجتها وإرسال الكود لها، والطلبات المعلقة التي تنتظر التثبت وتزويد العميل بالكود.' 
+                    : 'Track processed orders with sent codes versus pending orders awaiting fulfillment.'}
+                </p>
+              </div>
+
+              <button
+                onClick={fetchBackendOrders}
+                className="px-4 py-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-cyan-400 text-xs font-black rounded-xl hover:bg-blue-100 transition flex items-center gap-2 self-start md:self-auto cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>{lang === 'ar' ? 'تحديث الطلبات' : 'Refresh Orders'}</span>
+              </button>
+            </div>
+
+            {/* Metrics Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 rounded-2xl">
+                <p className="text-[11px] font-bold text-slate-400">{lang === 'ar' ? 'إجمالي الطلبات' : 'Total Orders'}</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{adminOrdersList.length}</p>
+              </div>
+
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{lang === 'ar' ? '⏳ لم يُرسل الكود بعد (معلقة)' : 'Pending Delivery'}</p>
+                <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                  {adminOrdersList.filter(o => o.status === 'CREATED' || o.status === 'PENDING' || o.status === 'PAYMENT_PENDING' || o.status === 'PROCESSING').length}
+                </p>
+              </div>
+
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">{lang === 'ar' ? '✅ تم معالجتها وإرسال الكود' : 'Fulfilled & Sent'}</p>
+                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                  {adminOrdersList.filter(o => o.status === 'COMPLETED' || o.status === 'DELIVERED').length}
+                </p>
+              </div>
+
+              <div className="p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-2xl">
+                <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400">{lang === 'ar' ? '✕ طلبات مرفوضة' : 'Rejected Orders'}</p>
+                <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                  {adminOrdersList.filter(o => o.status === 'REJECTED').length}
+                </p>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+              <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                {[
+                  { id: 'ALL', label: lang === 'ar' ? 'كافة الطلبات' : 'All Orders' },
+                  { id: 'PENDING', label: lang === 'ar' ? '⏳ لم يُرسل الكود بعد (معلقة)' : 'Pending Code Delivery' },
+                  { id: 'COMPLETED', label: lang === 'ar' ? '✅ تم معالجتها وإرسال الكود' : 'Code Sent & Fulfilled' },
+                  { id: 'REJECTED', label: lang === 'ar' ? '✕ طلبات مرفوضة' : 'Rejected' }
+                ].map(st => (
+                  <button
+                    key={st.id}
+                    onClick={() => setOrderStatusFilter(st.id)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap ${orderStatusFilter === st.id
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={orderSearchQuery}
+                onChange={e => setOrderSearchQuery(e.target.value)}
+                placeholder={lang === 'ar' ? 'ابحث برقم الطلب، اسم المنتج، البريد، الكود...' : 'Search by order ID, email, code...'}
+                className="w-full sm:w-72 px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Orders Table */}
+          <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right rtl:text-right text-xs">
+                <thead>
+                  <tr className="bg-slate-100/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-black">
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'رقم الطلب والتاريخ' : 'Order ID & Date'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'المنتج والباقة المختارة' : 'Product & Package'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'اسم العميل' : 'Customer Name'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'البريد الإلكتروني' : 'Email Address'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'المبلغ الإجمالي' : 'Total Amount'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'وسيلة الدفع' : 'Payment Method'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'حالة التسليم' : 'Delivery Status'}</th>
+                    <th className="py-3.5 px-4">{lang === 'ar' ? 'الكود الرقمي المرفق' : 'Attached Code'}</th>
+                    <th className="py-3.5 px-4 text-center">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-bold text-slate-700 dark:text-slate-200">
+                  {adminOrdersList
+                    .filter(o => {
+                      if (orderStatusFilter !== 'ALL') {
+                        if (orderStatusFilter === 'PENDING') return o.status === 'CREATED' || o.status === 'PENDING' || o.status === 'PAYMENT_PENDING' || o.status === 'PAYMENT_CONFIRMED' || o.status === 'PROCESSING';
+                        if (orderStatusFilter === 'COMPLETED') return o.status === 'COMPLETED' || o.status === 'DELIVERED';
+                        return o.status === orderStatusFilter;
+                      }
+                      return true;
+                    })
+                    .filter(o => {
+                      if (!orderSearchQuery.trim()) return true;
+                      const q = orderSearchQuery.toLowerCase();
+                      const deliveredCode = (o.deliveredPayload?.pinCode || o.pin_code || '').toLowerCase();
+                      const emailStr = (o.userEmail || o.guestEmail || o.targetAccountId || '').toLowerCase();
+                      const nameStr = (o.userName || o.name || '').toLowerCase();
+                      const packageStr = (o.packageTitle || o.productTitle || '').toLowerCase();
+                      return (
+                        (o.id && o.id.toLowerCase().includes(q)) ||
+                        (o.productTitle && o.productTitle.toLowerCase().includes(q)) ||
+                        packageStr.includes(q) ||
+                        emailStr.includes(q) ||
+                        nameStr.includes(q) ||
+                        deliveredCode.includes(q)
+                      );
+                    })
+                    .map((o) => {
+                      const isFulfilled = o.status === 'COMPLETED';
+                      const isPending = !isFulfilled && o.status !== 'REJECTED';
+                      const customerName = o.userName || o.name || (o.isGuest ? (lang === 'ar' ? 'عميل زائر' : 'Guest Customer') : (lang === 'ar' ? 'عميل مسجل' : 'Registered User'));
+                      const customerEmail = o.userEmail || o.guestEmail || (o.targetAccountId?.includes('@') ? o.targetAccountId : 'customer@nexuspaystore.com');
+                      const displayPackage = o.packageTitle || o.packageId || o.productTitle || 'باقة رقمية';
+                      const activeCode = isFulfilled ? (o.pin_code || o.code || (typeof o.deliveredPayload === 'object' ? o.deliveredPayload?.pinCode : null)) : null;
+
+                      return (
+                        <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                          {/* Order ID & Date */}
+                          <td className="py-4 px-4 font-mono font-black text-blue-600 dark:text-cyan-400">
+                            #{o.id}
+                            <span className="block text-[10px] text-slate-400 font-normal mt-0.5">
+                              {new Date(o.createdAt || Date.now()).toLocaleDateString('ar-EG')}
+                            </span>
+                          </td>
+
+                          {/* Product & Package */}
+                          <td className="py-4 px-4">
+                            <span className="font-black text-slate-900 dark:text-white block">{o.productTitle || o.productId}</span>
+                            <span className="text-[11px] text-cyan-600 dark:text-cyan-400 font-extrabold block mt-0.5">📦 {displayPackage}</span>
+                          </td>
+
+                          {/* Customer Name / Account ID */}
+                          <td className="py-4 px-4">
+                            <span className="font-black text-slate-900 dark:text-white block">{customerName}</span>
+                            <span className="text-[10px] font-mono text-slate-400 block mt-0.5">ID: {o.targetAccountId || o.playerId || 'N/A'}</span>
+                          </td>
+
+                          {/* Email Address */}
+                          <td className="py-4 px-4 font-mono text-xs">
+                            <span className="font-extrabold text-slate-800 dark:text-slate-200 block">{customerEmail}</span>
+                            <span className="text-[10px] text-slate-400 block">{o.isGuest ? 'طلب زائر' : 'حساب مسجل'}</span>
+                          </td>
+
+                          {/* Total Amount */}
+                          <td className="py-4 px-4">
+                            <span className="font-black text-emerald-600 dark:text-emerald-400 block text-sm">${(o.priceUSD || o.totalUSD || 9.99).toFixed(2)}</span>
+                            <span className="text-[10px] text-slate-400 block">الكمية: {o.quantity || 1}</span>
+                          </td>
+
+                          {/* Payment Method */}
+                          <td className="py-4 px-4">
+                            {(() => {
+                              const pm = (o.paymentMethod || 'WALLET').toUpperCase();
+                              if (pm === 'WALLET') {
+                                return (
+                                  <span className="px-2.5 py-1 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 rounded-xl text-[10px] font-black border border-cyan-500/20 inline-block">
+                                    💳 محفظة الموقع
+                                  </span>
+                                );
+                              }
+                              if (pm === 'YEMEN_TRANSFER') {
+                                return (
+                                  <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl text-[10px] font-black border border-emerald-500/20 inline-block">
+                                    🇾🇪 تحويل بنكي يمني
+                                  </span>
+                                );
+                              }
+                              if (pm === 'PAYPAL') {
+                                return (
+                                  <span className="px-2.5 py-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-black border border-blue-500/20 inline-block">
+                                    🅿️ بايبال (PayPal)
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="px-2.5 py-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-black border border-purple-500/20 inline-block">
+                                  💳 بطاقة ائتمان
+                                </span>
+                              );
+                            })()}
+                          </td>
+
+                          {/* Delivery Status */}
+                          <td className="py-4 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black inline-block ${
+                              isFulfilled
+                                ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                : o.status === 'REJECTED'
+                                  ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                  : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                              }`}>
+                              {isFulfilled ? 'مكتمل وتم إرسال الكود ✓' : o.status === 'REJECTED' ? 'مرفوض ✕' : 'لم يُرسل الكود بعد ⏳'}
+                            </span>
+                          </td>
+
+                          {/* Attached Code */}
+                          <td className="py-4 px-4">
+                            {activeCode ? (
+                              <span className="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl font-mono text-[11px] font-black border border-emerald-500/20 block truncate max-w-[140px]" title={activeCode}>
+                                {activeCode}
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl text-[10px] font-bold border border-amber-500/20 block">
+                                {o.status === 'REJECTED' ? '—' : '⏳ تنتظر الكود'}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-4 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleOpenDispatchModal(o)}
+                                className={`px-3 py-1.5 font-black text-xs rounded-xl shadow-sm transition flex items-center gap-1 cursor-pointer ${
+                                  isFulfilled
+                                    ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                }`}
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                                <span>{isFulfilled ? 'تعديل/إعادة إرسال' : 'تسليم الكود بالبريد'}</span>
+                              </button>
+                              {isPending && (
+                                <button
+                                  onClick={() => handleRejectOrderSubmit(o.id)}
+                                  className="px-3 py-1.5 bg-rose-500/10 text-rose-600 hover:bg-rose-600 hover:text-white font-black text-xs rounded-xl transition cursor-pointer"
+                                >
+                                  {lang === 'ar' ? 'رفض' : 'Reject'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: YEMEN PENDING DEPOSIT VERIFICATION REQUESTS */}
+      {activeAdminTab === 'pending-deposits' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span>🇾🇪</span>
+                <span>{lang === 'ar' ? 'طلبات الإيداع والشحن المباشر المعلقة (اليمن)' : 'Yemen Pending Deposit Verification Requests'}</span>
+              </h2>
+              <p className="text-xs text-slate-500 font-bold mt-1">
+                {lang === 'ar' ? 'قم بمراجعة إشعارات التحويل والموافقة على شحن حسابات العملاء فور التأكد من وصول الحوالة.' : 'Verify transfer notices and click approve to instantly credit user wallets.'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {['PENDING_VERIFICATION', 'COMPLETED', 'REJECTED', 'ALL'].map(st => (
+                <button
+                  key={st}
+                  onClick={() => setDepositStatusFilter(st)}
+                  className={`px-3 py-2 rounded-xl text-xs font-black transition cursor-pointer ${depositStatusFilter === st
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                >
+                  {st === 'PENDING_VERIFICATION' && (lang === 'ar' ? 'طلبات معلقة' : 'Pending')}
+                  {st === 'COMPLETED' && (lang === 'ar' ? 'مقبولة ومغذاة' : 'Approved')}
+                  {st === 'REJECTED' && (lang === 'ar' ? 'مرفوضة' : 'Rejected')}
+                  {st === 'ALL' && (lang === 'ar' ? 'الكل' : 'All')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <input
+              type="text"
+              value={depositSearchQuery}
+              onChange={e => setDepositSearchQuery(e.target.value)}
+              placeholder={lang === 'ar' ? 'ابحث برقم الطلب، رقم الإشعار، اسم العميل، أو البنك...' : 'Search deposit ID, reference number, user, or bank...'}
+              className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-right rtl:text-right ltr:text-left">
+                <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 font-black border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="p-4">{lang === 'ar' ? 'رقم الإيداع' : 'ID'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'العميل' : 'User'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'المنطقة' : 'Region'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'البنك / التطبيق' : 'Bank'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'رقم الإشعار / المرجع' : 'Reference'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'المبلغ ($)' : 'Amount'}</th>
+                    <th className="p-4">{lang === 'ar' ? 'الحالة' : 'Status'}</th>
+                    <th className="p-4 text-center">{lang === 'ar' ? 'إجراء الإدارة' : 'Actions'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-bold">
+                  {depositRequests
+                    .filter(r => depositStatusFilter === 'ALL' || r.status === depositStatusFilter)
+                    .filter(r => {
+                      if (!depositSearchQuery.trim()) return true;
+                      const q = depositSearchQuery.toLowerCase();
+                      return (
+                        r.id.toLowerCase().includes(q) ||
+                        r.referenceNumber.toLowerCase().includes(q) ||
+                        r.userName.toLowerCase().includes(q) ||
+                        r.bankName.toLowerCase().includes(q)
+                      );
+                    })
+                    .map(req => (
+                      <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                        <td className="p-4 font-mono font-black text-blue-600 dark:text-cyan-400">{req.id}</td>
+                        <td className="p-4 font-black">
+                          <div>{req.userName}</div>
+                          <div className="text-[10px] text-slate-400 font-normal">{req.userEmail || req.userPhone}</div>
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 font-bold">
+                            {req.region === 'NORTH' ? 'شمال (صنعاء)' : 'جنوب (عدن)'}
+                          </span>
+                        </td>
+                        <td className="p-4 font-extrabold">{req.bankName}</td>
+                        <td className="p-4 font-mono text-blue-600 dark:text-cyan-400 font-black">{req.referenceNumber}</td>
+                        <td className="p-4 font-black text-emerald-600 dark:text-emerald-400 text-sm">{formatCurrency(req.amountUSD)}</td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${req.status === 'COMPLETED'
+                              ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/80 dark:text-emerald-400'
+                              : req.status === 'REJECTED'
+                                ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/80 dark:text-rose-400'
+                                : 'bg-amber-100 text-amber-600 dark:bg-amber-950/80 dark:text-amber-400'
+                            }`}>
+                            {req.status === 'COMPLETED' ? 'مقبول ومغذى' : req.status === 'REJECTED' ? 'مرفوض' : 'قيد التثبت'}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {req.status === 'PENDING_VERIFICATION' ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => approveDepositRequest(req.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-sm transition cursor-pointer"
+                              >
+                                ✓ تأكيد وشحن المحفظة
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const reason = prompt(lang === 'ar' ? 'سبب رفض طلب الإيداع:' : 'Rejection reason:', 'لم يتم العثور على الإشعار المالي');
+                                  if (reason) rejectDepositRequest(req.id, reason);
+                                }}
+                                className="px-3 py-1.5 bg-rose-600/10 hover:bg-rose-600 text-rose-600 hover:text-white font-extrabold text-xs rounded-xl transition cursor-pointer"
+                              >
+                                ✕ رفض
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 font-normal">تم اتخاذ الإجراء</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: YEMEN BANKS & WALLETS MANAGER */}
+      {activeAdminTab === 'yemen-banks-manager' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Building className="w-6 h-6 text-emerald-500" />
+                <span>{lang === 'ar' ? 'إدارة البنوك والمحافظ الإلكترونية اليمنية (شمال / جنوب)' : 'Yemen Regional Banks & Wallets Manager'}</span>
+              </h2>
+              <p className="text-xs text-slate-500 font-bold mt-1">
+                {lang === 'ar' ? 'أضف وعدل حسابات المستلم ورقم الهاتف المسموح لكل منطقة جغرافيًا (صنعاء وشمال اليمن / عدن وجنوب اليمن)' : 'Configure recipient names, account numbers, and support numbers per region.'}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowAddYemenBankModal(true)}
+              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-2xl shadow-lg transition flex items-center gap-2 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>{lang === 'ar' ? 'إضافة بنك / محفظة جديدة' : '+ Add New Bank Account'}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* North Banks */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <h3 className="font-black text-base text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <span>🏢</span>
+                <span>{lang === 'ar' ? 'حسابات ومحافظ شمال اليمن (صنعاء والمحافظات)' : 'North Yemen Accounts'}</span>
+              </h3>
+              <div className="space-y-3">
+                {yemenBanksList.filter(b => b.region === 'NORTH' || b.region === 'BOTH').map(b => (
+                  <div key={b.id} className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center shrink-0">
+                        {b.imageUrl ? (
+                          <img src={b.imageUrl} alt={b.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Building2 className="w-5 h-5 text-emerald-500" />
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-black text-xs text-slate-900 dark:text-white">{b.name}</h4>
+                        <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-black mt-0.5">
+                          رقم الحساب: {b.accountNumber} | المستلم: {b.recipientName}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">واتساب: {b.whatsappPhone || '+967775479340'}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteYemenBank(b.id)}
+                      className="p-2 text-slate-400 hover:text-rose-500 rounded-xl transition cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* South Banks */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <h3 className="font-black text-base text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <span>🌊</span>
+                <span>{lang === 'ar' ? 'حسابات وبنوك جنوب اليمن (عدن والمحافظات)' : 'South Yemen Accounts'}</span>
+              </h3>
+              <div className="space-y-3">
+                {yemenBanksList.filter(b => b.region === 'SOUTH' || b.region === 'BOTH').map(b => (
+                  <div key={b.id} className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center shrink-0">
+                        {b.imageUrl ? (
+                          <img src={b.imageUrl} alt={b.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Building2 className="w-5 h-5 text-blue-500" />
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-black text-xs text-slate-900 dark:text-white">{b.name}</h4>
+                        <div className="text-[11px] font-mono text-blue-600 dark:text-cyan-400 font-black mt-0.5">
+                          رقم الحساب: {b.accountNumber} | المستلم: {b.recipientName}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">واتساب: {b.whatsappPhone || '+967775479340'}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteYemenBank(b.id)}
+                      className="p-2 text-slate-400 hover:text-rose-500 rounded-xl transition cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Add Bank Modal */}
+          {showAddYemenBankModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 rtl:text-right text-right">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">
+                    {lang === 'ar' ? 'إضافة بنك أو محفظة إلكترونية يمنية جديدة' : 'Add New Yemen Bank Account'}
+                  </h3>
+                  <button onClick={() => setShowAddYemenBankModal(false)} className="text-slate-400 hover:text-white cursor-pointer">✕</button>
+                </div>
+
+                <form onSubmit={handleAddYemenBankSubmit} className="space-y-3 text-xs font-bold">
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">اسم الحساب / البنك / المحفظة *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newBankForm.name}
+                      onChange={e => setNewBankForm({ ...newBankForm, name: e.target.value })}
+                      placeholder="مثال: حساب الكريمي المميز (صنعاء)"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <ImageUploadInput
+                      label={lang === 'ar' ? 'شعار / صورة البنك أو المحفظة (رفع من الجهاز إلى Cloudinary)' : 'Bank Logo Image (Cloudinary Upload)'}
+                      value={newBankForm.imageUrl}
+                      onChange={url => setNewBankForm({ ...newBankForm, imageUrl: url })}
+                      placeholder="رابط الصورة أو اضغط زر رفع صورة من الجهاز..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">المنطقة الجغرافية *</label>
+                    <select
+                      value={newBankForm.region}
+                      onChange={e => setNewBankForm({ ...newBankForm, region: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold"
+                    >
+                      <option value="NORTH">شمال اليمن (صنعاء والمحافظات)</option>
+                      <option value="SOUTH">جنوب اليمن (عدن والمحافظات)</option>
+                      <option value="BOTH">جميع المناطق (شمال وجنوب)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">اسم المستلم (مدير المشروع) *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newBankForm.recipientName}
+                      onChange={e => setNewBankForm({ ...newBankForm, recipientName: e.target.value })}
+                      placeholder="مثال: عمار Zuhair"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">رقم الحساب أو رقم الجوال للتحويل *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newBankForm.accountNumber}
+                      onChange={e => setNewBankForm({ ...newBankForm, accountNumber: e.target.value })}
+                      placeholder="مثال: 301294819 أو 775479340"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">رقم الواتساب لإرسال الإشعارات والإثباتات</label>
+                    <input
+                      type="text"
+                      value={newBankForm.whatsappPhone}
+                      onChange={e => setNewBankForm({ ...newBankForm, whatsappPhone: e.target.value })}
+                      placeholder="+967775479340"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-slate-600 dark:text-slate-400">ملاحظات وتعليمات للمستخدم</label>
+                    <input
+                      type="text"
+                      value={newBankForm.notes}
+                      onChange={e => setNewBankForm({ ...newBankForm, notes: e.target.value })}
+                      placeholder="مثال: يرجى تحويل المبلغ المباشر عبر تطبيق حاسب"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-md transition mt-2 cursor-pointer"
+                  >
+                    حفظ الحساب والمحفظة
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 0: FINANCIAL ANALYTICS & PLATFORM PROFITABILITY HUB */}
       {activeAdminTab === 'financial-analytics' && (
@@ -591,7 +1572,7 @@ export const AdminDashboardPage = () => {
 
           {/* Top Sellers Table & Categories Breakdown */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
+
             {/* Top Sellers Table */}
             <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -698,15 +1679,15 @@ export const AdminDashboardPage = () => {
             {products.map((prod) => {
               const prodTitle = typeof prod.title === 'string' ? prod.title : (prod.title[lang] || prod.title.ar || prod.title.en);
               return (
-                <div 
-                  key={prod.id} 
+                <div
+                  key={prod.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-lg flex flex-col justify-between space-y-6"
                 >
                   <div className="space-y-4">
                     {/* Header Image & Info with Lazy Loading & Precache */}
                     <div className="flex items-center gap-4">
-                      <OptimizedImage 
-                        src={prod.image} 
+                      <OptimizedImage
+                        src={prod.image}
                         alt={prodTitle}
                         className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-slate-200 dark:border-slate-800 shadow-md"
                       />
@@ -747,7 +1728,7 @@ export const AdminDashboardPage = () => {
 
                       <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                         {(prod.packages || []).map((pkg) => (
-                          <div 
+                          <div
                             key={pkg.id}
                             className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between gap-2"
                           >
@@ -767,7 +1748,7 @@ export const AdminDashboardPage = () => {
                                 </span>
                               </div>
                             </div>
-                            
+
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={() => handleOpenEditPackage(prod.id, pkg)}
@@ -828,8 +1809,8 @@ export const AdminDashboardPage = () => {
                 {lang === 'ar' ? 'إدارة وتفعيل الأقسام والتصنيفات (11 فئة)' : 'Category Visibility & Enable/Disable Manager'}
               </h2>
               <p className="text-xs font-extrabold text-slate-500 dark:text-slate-400 mt-1">
-                {lang === 'ar' 
-                  ? 'يمكنك تفعيل أو إلغاء تفعيل أي قسم بنقرة واحدة. عند إيقاف قسم، يختفي تلقائياً من الواجهة الرئيسية وسطح تصفح المنتجات للمستخدمين.' 
+                {lang === 'ar'
+                  ? 'يمكنك تفعيل أو إلغاء تفعيل أي قسم بنقرة واحدة. عند إيقاف قسم، يختفي تلقائياً من الواجهة الرئيسية وسطح تصفح المنتجات للمستخدمين.'
                   : 'Toggle category visibility. Disabled categories and their products are hidden from public store view.'}
               </p>
             </div>
@@ -844,11 +1825,10 @@ export const AdminDashboardPage = () => {
               return (
                 <div
                   key={cat.id}
-                  className={`p-6 rounded-3xl border transition-all shadow-xs flex flex-col justify-between space-y-4 ${
-                    isActive
+                  className={`p-6 rounded-3xl border transition-all shadow-xs flex flex-col justify-between space-y-4 ${isActive
                       ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
                       : 'bg-slate-50 dark:bg-slate-950/60 border-rose-200 dark:border-rose-900/40 opacity-75'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -863,25 +1843,23 @@ export const AdminDashboardPage = () => {
                       </div>
                     </div>
 
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                      isActive
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${isActive
                         ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
                         : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800'
-                    }`}>
+                      }`}>
                       {isActive ? (lang === 'ar' ? 'مفعل / نشط' : 'Active') : (lang === 'ar' ? 'معطل / مخفي' : 'Inactive')}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-slate-500 font-bold border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-2">
                     <span>{lang === 'ar' ? 'عدد المنتجات في القسم:' : 'Products Count:'} <strong className="text-slate-900 dark:text-white">{prodCount}</strong></span>
-                    
+
                     <button
                       onClick={() => toggleCategoryStatus(cat.id)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                        isActive
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${isActive
                           ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20'
                           : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20'
-                      }`}
+                        }`}
                     >
                       {isActive ? (
                         <>
@@ -936,11 +1914,10 @@ export const AdminDashboardPage = () => {
               const isLowBalance = availBalance < 500;
 
               return (
-                <div 
-                  key={index} 
-                  className={`bg-white dark:bg-slate-900 border rounded-3xl p-6 shadow-lg flex flex-col justify-between space-y-6 transition ${
-                    isLowBalance ? 'border-amber-500/50 dark:border-amber-500/30' : 'border-slate-200 dark:border-slate-800'
-                  }`}
+                <div
+                  key={index}
+                  className={`bg-white dark:bg-slate-900 border rounded-3xl p-6 shadow-lg flex flex-col justify-between space-y-6 transition ${isLowBalance ? 'border-amber-500/50 dark:border-amber-500/30' : 'border-slate-200 dark:border-slate-800'
+                    }`}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -961,11 +1938,10 @@ export const AdminDashboardPage = () => {
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        <span className={`px-3 py-1 rounded-full text-xs font-black ${
-                          prov.status === 'HEALTHY' 
-                            ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                        <span className={`px-3 py-1 rounded-full text-xs font-black ${prov.status === 'HEALTHY'
+                            ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                             : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-                        }`}>
+                          }`}>
                           {prov.status}
                         </span>
                         <button
@@ -1074,9 +2050,8 @@ export const AdminDashboardPage = () => {
                       <td className="py-3 px-2 font-mono text-slate-400">{tx.date}</td>
                       <td className="py-3 px-2 font-black text-slate-900 dark:text-white">{tx.provider}</td>
                       <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                          tx.type === 'DEPOSIT' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${tx.type === 'DEPOSIT' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+                          }`}>
                           {tx.type}
                         </span>
                       </td>
@@ -1097,14 +2072,14 @@ export const AdminDashboardPage = () => {
       {activeAdminTab === 'admins-management' && (
         <div className="space-y-6 animate-fade-in">
           <div className="flex flex-col md:flex-row gap-6">
-            
+
             {/* Left: Create Admin Form */}
             <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <Users className="w-5 h-5 text-blue-500" />
                 {lang === 'ar' ? 'تجهيز وإضافة حساب مسؤول (ADMIN)' : 'Create Admin Account'}
               </h3>
-              
+
               <form onSubmit={handleCreateAdminSubmit} className="space-y-4 text-xs font-black text-slate-700 dark:text-slate-300">
                 <div>
                   <label className="block mb-1">{lang === 'ar' ? 'الاسم الكامل للمسؤول' : 'Full Name'}</label>
@@ -1117,7 +2092,7 @@ export const AdminDashboardPage = () => {
                     className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-slate-950 dark:text-white"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block mb-1">{lang === 'ar' ? 'البريد الإلكتروني المهني' : 'Work Email Address'}</label>
                   <input
@@ -1129,7 +2104,7 @@ export const AdminDashboardPage = () => {
                     className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-slate-950 dark:text-white"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block mb-1">{lang === 'ar' ? 'كلمة المرور القوية للمسؤول' : 'Strong Password'}</label>
                   <input
@@ -1157,13 +2132,13 @@ export const AdminDashboardPage = () => {
                 </button>
               </form>
             </div>
-            
+
             {/* Right: Admins List */}
             <div className="w-full md:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
               <h3 className="text-sm font-black text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-3">
                 {lang === 'ar' ? 'المدراء المسؤولون الحاليون' : 'Active Administrators'}
               </h3>
-              
+
               <div className="space-y-3">
                 {adminsList.map((adm, index) => (
                   <div key={index} className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-3">
@@ -1322,9 +2297,8 @@ export const AdminDashboardPage = () => {
                   <div className="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center font-black">
                     <Building className="w-5 h-5" />
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                    v.status === 'APPROVED' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                  }`}>
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${v.status === 'APPROVED' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                    }`}>
                     {v.status}
                   </span>
                 </div>
@@ -1378,7 +2352,7 @@ export const AdminDashboardPage = () => {
 
           {/* Active Anti-Fraud Rules Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <ShieldCheck className="w-5 h-5 text-emerald-500" />
@@ -1575,10 +2549,9 @@ export const AdminDashboardPage = () => {
                       <td className="py-3 px-2 font-mono text-purple-400">{row.supplier}</td>
                       <td className="py-3 px-2 font-mono text-slate-500">{row.code}</td>
                       <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                          row.status === 'AVAILABLE' ? 'bg-emerald-500/10 text-emerald-500' :
-                          row.status === 'RESERVED' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${row.status === 'AVAILABLE' ? 'bg-emerald-500/10 text-emerald-500' :
+                            row.status === 'RESERVED' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
+                          }`}>
                           {row.status}
                         </span>
                       </td>
@@ -1632,9 +2605,8 @@ export const AdminDashboardPage = () => {
                 <button
                   key={c.id}
                   onClick={() => setLogChannelFilter(c.id)}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition whitespace-nowrap ${
-                    logChannelFilter === c.id ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-900 text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition whitespace-nowrap ${logChannelFilter === c.id ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
                 >
                   {c.label}
                 </button>
@@ -1650,10 +2622,9 @@ export const AdminDashboardPage = () => {
                     <div className="flex flex-col sm:flex-row justify-between gap-2 items-start sm:items-center">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-slate-500 text-[10px] font-mono">{log.timestamp?.substring(11, 19) || 'Just now'}</span>
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
-                          log.level === 'ERROR' ? 'bg-rose-500/20 text-rose-400' :
-                          log.level === 'WARN' ? 'bg-amber-500/20 text-amber-400' : 'bg-blue-500/20 text-blue-400'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-black ${log.level === 'ERROR' ? 'bg-rose-500/20 text-rose-400' :
+                            log.level === 'WARN' ? 'bg-amber-500/20 text-amber-400' : 'bg-blue-500/20 text-blue-400'
+                          }`}>
                           {log.level}
                         </span>
                         <span className="text-purple-400 font-bold text-[10px] font-mono">{log.category}</span>
@@ -1705,7 +2676,7 @@ export const AdminDashboardPage = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+
             {/* Live Feature Flags Toggles */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -1737,9 +2708,8 @@ export const AdminDashboardPage = () => {
                           });
                           addToast(lang === 'ar' ? `تم تغيير حالة الخصائص: ${flag.key} إلى ${!isActive}` : `Toggled feature flag: ${flag.key}`);
                         }}
-                        className={`p-1 rounded-xl transition ${
-                          isActive ? 'text-emerald-500' : 'text-slate-400'
-                        }`}
+                        className={`p-1 rounded-xl transition ${isActive ? 'text-emerald-500' : 'text-slate-400'
+                          }`}
                       >
                         {isActive ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
                       </button>
@@ -1851,9 +2821,8 @@ export const AdminDashboardPage = () => {
               <div key={p.id} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                 <div className="flex justify-between items-start">
                   <h4 className="font-black text-sm text-slate-900 dark:text-white">{p.title}</h4>
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
-                    p.severity === 'CRITICAL' ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-                  }`}>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-black ${p.severity === 'CRITICAL' ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                    }`}>
                     {p.severity}
                   </span>
                 </div>
@@ -1890,7 +2859,7 @@ export const AdminDashboardPage = () => {
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
               <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <ShoppingBag className="w-6 h-6 text-blue-600" />
-                {showEditProdModal 
+                {showEditProdModal
                   ? (lang === 'ar' ? 'تعديل بيانات ورابط صورة المنتج' : 'Edit Product & Image URL')
                   : (lang === 'ar' ? 'تجهيز وإضافة منتج رقمي جديد' : 'Create New Digital Product')}
               </h3>
@@ -1922,22 +2891,13 @@ export const AdminDashboardPage = () => {
                 />
               </div>
 
-              {/* Explicit Image URL Field */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
-                  <ImageIcon className="w-4 h-4 text-blue-500" />
-                  <span>{lang === 'ar' ? 'رابط صورة المنتج (Image URL)' : 'Image URL (Stored in Database)'}</span>
-                </label>
-                <input
-                  type="text"
+                <ImageUploadInput
+                  label={lang === 'ar' ? 'صورة الخدمة / المنتج (رابط مباشر أو رفع من الجهاز لـ Cloudinary)' : 'Product Image (URL or Cloudinary Upload)'}
                   value={prodForm.image}
-                  onChange={e => setProdForm({ ...prodForm, image: e.target.value })}
-                  placeholder="https://images.unsplash.com/... or https://domain.com/image.jpg"
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black font-mono text-[11px]"
+                  onChange={url => setProdForm({ ...prodForm, image: url })}
+                  placeholder="أدخل رابط الصورة أو اضغط زر رفع صورة من الجهاز..."
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  {lang === 'ar' ? 'يتم حفظ رابط الصورة في قاعدة البيانات وتفعيل التحميل المجدول lazy loading وتخزينها في الذاكرة.' : 'URL is stored in Database and loaded with lazy loading & memory cache.'}
-                </p>
               </div>
 
               {/* Category Select Input */}
@@ -2245,6 +3205,216 @@ export const AdminDashboardPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ORDER FULFILLMENT CODE EMAIL DISPATCHER */}
+      {showOrderEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-5 text-right rtl:text-right">
+
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    {lang === 'ar' ? 'إرسال كود المنتج عبر البريد الإلكتروني للمشتري' : 'Dispatch Product Code Email'}
+                  </h3>
+                  <span className="text-xs font-mono text-blue-600 dark:text-cyan-400 font-bold">
+                    الطلب #{selectedOrderForDispatch?.id} | {selectedOrderForDispatch?.productTitle}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setShowOrderEmailModal(false)} className="text-slate-400 hover:text-white cursor-pointer">✕</button>
+            </div>
+
+            <form onSubmit={handleSendOrderEmailSubmit} className="space-y-4 text-xs font-extrabold">
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 mb-1">عنوان البريد الإلكتروني للمستلم *</label>
+                <input
+                  type="email"
+                  required
+                  value={orderEmailForm.recipientEmail}
+                  onChange={e => setOrderEmailForm({ ...orderEmailForm, recipientEmail: e.target.value })}
+                  placeholder="customer@domain.com"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 mb-1">عنوان الرسالة (Subject) *</label>
+                <input
+                  type="text"
+                  required
+                  value={orderEmailForm.emailSubject}
+                  onChange={e => setOrderEmailForm({ ...orderEmailForm, emailSubject: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">الكود الرقمي / رمز البطاقة *</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={orderEmailForm.fulfillmentCode}
+                      onChange={e => setOrderEmailForm({ ...orderEmailForm, fulfillmentCode: e.target.value })}
+                      placeholder="e.g. ABCD-1234-EFGH-5678"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black text-emerald-600 dark:text-emerald-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setOrderEmailForm({ ...orderEmailForm, fulfillmentCode: 'NEXUS-' + Math.floor(10000000 + Math.random() * 90000000) })}
+                      className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-900 dark:text-white text-[11px] font-black rounded-xl shrink-0"
+                      title="توليد كود تلقائي"
+                    >
+                      🎲 جديد
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">الرقم التسلسلي (S/N Serial Number)</label>
+                  <input
+                    type="text"
+                    value={orderEmailForm.serialNumber}
+                    onChange={e => setOrderEmailForm({ ...orderEmailForm, serialNumber: e.target.value })}
+                    placeholder="e.g. SN-90218491"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-black"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 mb-1">نشرة وقالب الرسالة الجاهزة (قابل للتعديل المباشر قبل الإرسال) *</label>
+                <textarea
+                  rows={6}
+                  required
+                  value={orderEmailForm.emailBody}
+                  onChange={e => setOrderEmailForm({ ...orderEmailForm, emailBody: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-xs font-bold text-slate-900 dark:text-white leading-relaxed"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>إرسال البريد الإلكتروني واعتماد الطلب</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowOrderEmailModal(false)}
+                  className="px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CUSTOMER COMPLAINT REVIEW & REPLY */}
+      {showComplaintModal && selectedComplaint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 text-right rtl:text-right">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    معاينة والرد على شكوى العميل #{selectedComplaint.id}
+                  </h3>
+                  <span className="text-xs font-mono text-slate-400 font-bold">
+                    {selectedComplaint.name} ({selectedComplaint.email})
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setShowComplaintModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <div className="space-y-4 text-xs font-bold">
+              {/* Message Box */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                <div className="flex justify-between items-center text-[11px] text-slate-400 border-b border-slate-200 dark:border-slate-700/60 pb-2">
+                  <span>موضوع الشكوى: <strong>{selectedComplaint.subject === 'TOPUP' ? 'مساعدة شحن محفظة' : selectedComplaint.subject === 'ORDER' ? 'مشكلة طلب / كود' : selectedComplaint.subject === 'BUSINESS' ? 'شراكة تجارية' : 'استفسار عام'}</strong></span>
+                  <span className="font-mono">{selectedComplaint.createdAt ? new Date(selectedComplaint.createdAt).toLocaleString('ar-YE') : ''}</span>
+                </div>
+                <p className="text-slate-900 dark:text-white font-extrabold text-sm leading-relaxed whitespace-pre-wrap">
+                  {selectedComplaint.message}
+                </p>
+              </div>
+
+              {/* Status Selector */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">تحديث حالة الشكوى *</label>
+                <select
+                  value={complaintResponseForm.status}
+                  onChange={e => setComplaintResponseForm({ ...complaintResponseForm, status: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="PENDING">معلقة ⏳</option>
+                  <option value="IN_PROGRESS">قيد المعالجة والمتابعة 🔄</option>
+                  <option value="RESOLVED">تمت المعالجة والحل بنجاح ✓</option>
+                  <option value="REJECTED">مرفوضة ✕</option>
+                </select>
+              </div>
+
+              {/* Admin Reply / Notes */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">ملاحظات الرد والحل (تُحفظ في النظام للعميل) *</label>
+                <textarea
+                  rows={4}
+                  value={complaintResponseForm.notes}
+                  onChange={e => setComplaintResponseForm({ ...complaintResponseForm, notes: e.target.value })}
+                  placeholder="أدخل ردك أو الإجراء الذي تم اتخاذه مع العميل..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white leading-relaxed"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleUpdateComplaintStatus(selectedComplaint.id, complaintResponseForm.status, complaintResponseForm.notes);
+                    addToast(lang === 'ar' ? `تم إرسال إشعار الرد بالبريد إلى: ${selectedComplaint.email}` : `Response email dispatched to ${selectedComplaint.email}`, 'success');
+                  }}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>حفظ الرد وإرسال إشعار بالبريد الإلكتروني ({selectedComplaint.email})</span>
+                </button>
+
+                <div className="flex gap-2">
+                  <a
+                    href={`https://wa.me/967784746159?text=${encodeURIComponent(`أهلاً بك ${selectedComplaint.name}، بخصوص استفسارك/شكواك رقم #${selectedComplaint.id} في منصة NexusPay:\n${complaintResponseForm.notes || 'تمت المعالجة بنجاح'}`)}`}
+                    target="_blank" rel="noreferrer"
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md transition text-center flex items-center justify-center gap-1.5"
+                  >
+                    💬 إرسال الرد عبر الواتساب المباشر
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setShowComplaintModal(false)}
+                    className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

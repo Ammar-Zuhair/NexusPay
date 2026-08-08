@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { LogoMark } from './LogoMark';
+import { TopUpModal } from './TopUpModal';
 import { SUPPORTED_COUNTRIES } from '../data/mockData';
+import { API_BASE_URL } from '../utils/api.js';
 import { 
   Menu, X, Globe, DollarSign, User, Wallet, ShoppingBag, 
   LogOut, Sun, Moon, ShieldCheck, Home, Gamepad2, Plus 
@@ -40,15 +42,31 @@ export const Header = () => {
     setIsCartOpen,
     user,
     userCountry,
+    setUserCountry,
     browsingCountry,
     setBrowsingCountry,
     userWallet,
     topUpWallet,
     isTopUpProcessing,
+    isTopUpModalOpen,
+    openTopUpModal,
+    closeTopUpModal,
+    addToast,
     login,
     register,
     logout
   } = useApp();
+
+  const handleCountryChange = (newCountry) => {
+    setBrowsingCountry(newCountry);
+    setUserCountry(newCountry);
+    addToast(
+      lang === 'ar'
+        ? `تم تحديث دولة المتجر والتصفح إلى: ${COUNTRY_LIST.find(c => c.code === newCountry)?.name || newCountry}`
+        : `Store region updated to ${newCountry}`,
+      'info'
+    );
+  };
 
   // Mobile navigation drawer toggle
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -59,8 +77,17 @@ export const Header = () => {
   const [emailInput, setEmailInput]         = useState('');
   const [nameInput, setNameInput]           = useState('');
   const [passwordInput, setPasswordInput]   = useState('');
-  const [countryInput, setCountryInput]     = useState('SA');
+  const [confirmPwInput, setConfirmPwInput] = useState('');
+  const [countryInput, setCountryInput]     = useState('YE');
   const [showPassword, setShowPassword]     = useState(false);
+  const [showConfirmPw, setShowConfirmPw]   = useState(false);
+  const [authError, setAuthError]           = useState('');
+
+  // OTP step after registration
+  const [authStep, setAuthStep]     = useState('form');  // 'form' | 'otp' | 'forgot_sent'
+  const [otpInput, setOtpInput]     = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
 
   // Password strength
   const [pwStrength, setPwStrength] = useState({ len: false, upper: false, lower: false, num: false, sym: false });
@@ -111,8 +138,7 @@ export const Header = () => {
   };
 
   const handleOpenTopUp = () => {
-    resetTopUpModal();
-    setShowTopUpModal(true);
+    openTopUpModal();
   };
 
   const handleTopUpConfirm = async () => {
@@ -127,24 +153,117 @@ export const Header = () => {
     setTopUpStep(4);
   };
 
+
+
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
+    setAuthError('');
     if (!emailInput.trim()) return;
+
     if (authMode === 'login') {
       const success = await login(emailInput, passwordInput);
       if (success) {
         setShowAuthModal(false);
         setEmailInput('');
         setPasswordInput('');
+        setConfirmPwInput('');
+        setAuthStep('form');
+      } else {
+        setAuthError(lang === 'ar' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة' : 'Invalid email or password');
       }
     } else {
-      const success = await register(nameInput || 'لاعب جديد', emailInput, passwordInput, countryInput);
-      if (success) {
+      // Register: client-side confirm check
+      if (passwordInput !== confirmPwInput) {
+        setAuthError(lang === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: nameInput || 'مستخدم جديد', email: emailInput, password: passwordInput, countryCode: countryInput })
+        });
+        const data = await res.json();
+        if (res.ok && data.requiresOtp) {
+          setPendingEmail(emailInput);
+          setAuthStep('otp');
+        } else if (data.error) {
+          setAuthError(data.error);
+        }
+      } catch {
+        setAuthError(lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server');
+      }
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setOtpLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, otp: otpInput })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Auto-login after OTP
+        const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingEmail, password: passwordInput })
+        });
+        const loginData = await loginRes.json();
+        if (loginRes.ok && loginData.user) {
+          await login(pendingEmail, passwordInput);
+        }
         setShowAuthModal(false);
+        setAuthStep('form');
+        setOtpInput('');
         setEmailInput('');
         setPasswordInput('');
+        setConfirmPwInput('');
         setNameInput('');
+        addToast(lang === 'ar' ? 'تم التحقق وتسجيل الدخول بنجاح! مرحباً بك 🎉' : 'Email verified! Welcome aboard! 🎉');
+      } else {
+        setAuthError(data.error || 'رمز التحقق غير صحيح');
       }
+    } catch {
+      setAuthError(lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/resend-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail })
+      });
+      addToast(lang === 'ar' ? 'تم إرسال رمز جديد إلى بريدك' : 'New OTP sent to your email');
+    } catch {
+      addToast(lang === 'ar' ? 'فشل إرسال الرمز' : 'Failed to resend OTP', 'error');
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!emailInput.trim()) {
+      setAuthError(lang === 'ar' ? 'يرجى إدخال بريدك الإلكتروني أولاً' : 'Enter your email first');
+      return;
+    }
+    setAuthError('');
+    try {
+      await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput })
+      });
+      setAuthStep('forgot_sent');
+    } catch {
+      setAuthError(lang === 'ar' ? 'تعذر إرسال الطلب' : 'Failed to send request');
     }
   };
 
@@ -228,35 +347,10 @@ export const Header = () => {
               </div>
             )}
 
-            {/* Country Selector (Desktop lg) */}
-            <div className="hidden lg:block">
-              <select 
-                value={browsingCountry}
-                onChange={(e) => setBrowsingCountry(e.target.value)}
-                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs cursor-pointer"
-              >
-                {COUNTRY_LIST.map(c => (
-                  <option key={c.code} value={c.code}>
-                    {c.flag} {lang === 'ar' ? c.name : c.nameEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Multi-Currency Selector (Desktop lg) */}
-            <div className="hidden lg:block">
-              <select 
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none shadow-xs cursor-pointer"
-              >
-                <option value="USD">$ USD</option>
-                <option value="EUR">€ EUR</option>
-                <option value="SAR">ر.س SAR</option>
-                <option value="AED">د.إ AED</option>
-                <option value="YER">ر.ي YER</option>
-                <option value="EGP">ج.م EGP</option>
-              </select>
+            {/* Locked Country & Currency Badge (Yemen & USD $) */}
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black text-slate-800 dark:text-slate-200">
+              <span>🇾🇪</span>
+              <span>$ USD</span>
             </div>
 
             {/* Language Switcher (Desktop lg) */}
@@ -445,45 +539,12 @@ export const Header = () => {
                   {lang === 'ar' ? 'إعدادات المتجر والدولة' : 'Store Settings'}
                 </span>
 
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Country Dropdown */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                      <Globe className="w-3.5 h-3.5 text-blue-500" />
-                      <span>{lang === 'ar' ? 'دولة التصفح' : 'Store Region'}</span>
-                    </label>
-                    <select 
-                      value={browsingCountry}
-                      onChange={(e) => setBrowsingCountry(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none"
-                    >
-                      {COUNTRY_LIST.map(c => (
-                        <option key={c.code} value={c.code}>
-                          {c.flag} {lang === 'ar' ? c.name : c.nameEn}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Currency Dropdown */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-black text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>{lang === 'ar' ? 'عملة العرض' : 'Currency'}</span>
-                    </label>
-                    <select 
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black focus:outline-none"
-                    >
-                      <option value="USD">$ USD</option>
-                      <option value="EUR">€ EUR</option>
-                      <option value="SAR">ر.س SAR</option>
-                      <option value="AED">د.إ AED</option>
-                      <option value="YER">ر.ي YER</option>
-                      <option value="EGP">ج.م EGP</option>
-                    </select>
-                  </div>
+                <div className="p-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-between text-xs font-black text-slate-800 dark:text-slate-200">
+                  <span className="flex items-center gap-2">
+                    <span>🇾🇪</span>
+                    <span>{lang === 'ar' ? 'منطقة المتجر: اليمن' : 'Store Region: Yemen'}</span>
+                  </span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-mono font-black">$ USD</span>
                 </div>
 
                 {/* Quick Toggles: Language & Theme */}
@@ -730,102 +791,206 @@ export const Header = () => {
       {showAuthModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
-            
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-              <div className="flex gap-4">
-                <button onClick={() => setAuthMode('login')}
-                  className={`font-black text-base transition ${authMode === 'login' ? 'text-blue-600 border-b-2 border-blue-600 pb-1' : 'text-slate-400'}`}>
-                  {lang === 'ar' ? 'تسجيل الدخول' : 'Login'}
-                </button>
-                <button onClick={() => setAuthMode('register')}
-                  className={`font-black text-base transition ${authMode === 'register' ? 'text-blue-600 border-b-2 border-blue-600 pb-1' : 'text-slate-400'}`}>
-                  {lang === 'ar' ? 'إنشاء حساب جديد' : 'Register'}
-                </button>
-              </div>
-              <button onClick={() => setShowAuthModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
 
-            <form onSubmit={handleAuthSubmit} className="space-y-3">
-              {authMode === 'register' && (
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'الاسم الكامل' : 'Full Name'}</label>
-                  <input type="text" required value={nameInput} onChange={e => setNameInput(e.target.value)}
-                    placeholder={lang === 'ar' ? 'مثال: أحمد محمود' : 'e.g. John Smith'}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'البريد الإلكتروني' : 'Email Address'}</label>
-                <input type="email" required value={emailInput} onChange={e => setEmailInput(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'كلمة المرور' : 'Password'}</label>
-                <div className="relative">
-                  <input type={showPassword ? 'text' : 'password'} required value={passwordInput}
-                    onChange={e => setPasswordInput(e.target.value)} placeholder="••••••••"
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white pr-10" />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 end-3 flex items-center text-slate-400 hover:text-slate-600 text-sm">
-                    {showPassword ? '🙈' : '👁️'}
+            {/* ── Tab header (hidden during OTP / forgot_sent steps) ── */}
+            {authStep === 'form' && (
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex gap-4">
+                  <button onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                    className={`font-black text-base transition ${authMode === 'login' ? 'text-blue-600 border-b-2 border-blue-600 pb-1' : 'text-slate-400'}`}>
+                    {lang === 'ar' ? 'تسجيل الدخول' : 'Login'}
+                  </button>
+                  <button onClick={() => { setAuthMode('register'); setAuthError(''); }}
+                    className={`font-black text-base transition ${authMode === 'register' ? 'text-blue-600 border-b-2 border-blue-600 pb-1' : 'text-slate-400'}`}>
+                    {lang === 'ar' ? 'إنشاء حساب جديد' : 'Register'}
                   </button>
                 </div>
-                {/* Password strength hints (on register) */}
-                {authMode === 'register' && passwordInput.length > 0 && (
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-2">
-                    {[
-                      { ok: pwStrength.len,   ar: '8 أحرف على الأقل',      en: 'At least 8 chars' },
-                      { ok: pwStrength.upper, ar: 'حرف كبير (A-Z)',         en: 'Uppercase letter' },
-                      { ok: pwStrength.lower, ar: 'حرف صغير (a-z)',         en: 'Lowercase letter' },
-                      { ok: pwStrength.num,   ar: 'رقم (0-9)',              en: 'Number (0-9)' },
-                      { ok: pwStrength.sym,   ar: 'رمز خاص (@#$)',          en: 'Special char' },
-                    ].map((rule, i) => (
-                      <span key={i} className={`text-[10px] font-semibold flex items-center gap-1 ${rule.ok ? 'text-emerald-500' : 'text-slate-400'}`}>
-                        {rule.ok ? '✓' : '○'} {lang === 'ar' ? rule.ar : rule.en}
-                      </span>
-                    ))}
+                <button onClick={() => { setShowAuthModal(false); setAuthStep('form'); setAuthError(''); }} className="text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+            )}
+
+            {/* ── OTP Verification Step ── */}
+            {authStep === 'otp' && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                  <h3 className="font-black text-base text-slate-900 dark:text-white">
+                    {lang === 'ar' ? '📧 تأكيد البريد الإلكتروني' : '📧 Email Verification'}
+                  </h3>
+                  <button onClick={() => { setShowAuthModal(false); setAuthStep('form'); setAuthError(''); }} className="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {lang === 'ar'
+                    ? `تم إرسال رمز تحقق مؤلف من 6 أرقام إلى بريدك: `
+                    : 'A 6-digit verification code has been sent to: '}
+                  <strong className="text-blue-600 dark:text-cyan-400 font-mono">{pendingEmail}</strong>
+                </p>
+                <form onSubmit={handleVerifyOtp} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      {lang === 'ar' ? 'رمز التحقق (OTP)' : 'Verification Code (OTP)'}
+                    </label>
+                    <input
+                      type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required
+                      value={otpInput} onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                      placeholder="_ _ _ _ _ _"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-600 rounded-xl text-center text-2xl font-black font-mono text-slate-900 dark:text-white tracking-[10px] focus:outline-none"
+                    />
+                  </div>
+                  {authError && (
+                    <p className="text-xs text-rose-600 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2 font-semibold">{authError}</p>
+                  )}
+                  <button type="submit" disabled={otpLoading || otpInput.length !== 6}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-extrabold text-xs rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+                    {otpLoading
+                      ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{lang === 'ar' ? 'جاري التحقق...' : 'Verifying...'}</>
+                      : (lang === 'ar' ? '✓ تأكيد الرمز وإكمال إنشاء الحساب' : '✓ Verify & Activate Account')}
+                  </button>
+                </form>
+                <div className="text-center">
+                  <span className="text-xs text-slate-400">{lang === 'ar' ? 'لم تستلم الرمز؟ ' : "Didn't receive the code? "}</span>
+                  <button onClick={handleResendOtp} className="text-xs text-blue-600 dark:text-cyan-400 font-bold hover:underline">
+                    {lang === 'ar' ? 'إعادة الإرسال' : 'Resend'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Forgot Password Sent Step ── */}
+            {authStep === 'forgot_sent' && (
+              <div className="space-y-5 text-center py-4">
+                <button onClick={() => { setShowAuthModal(false); setAuthStep('form'); setAuthError(''); }} className="absolute top-4 end-4 text-slate-400 hover:text-slate-600">✕</button>
+                <div className="text-5xl">📬</div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  {lang === 'ar' ? 'تم إرسال رابط إعادة التعيين!' : 'Reset Link Sent!'}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {lang === 'ar'
+                    ? `إذا كان البريد "${emailInput}" مسجلاً لدينا، ستصلك رسالة تحتوي على رابط إعادة تعيين كلمة المرور. تحقق من صندوق الوارد أو مجلد الرسائل المزعجة.`
+                    : `If "${emailInput}" is registered, a reset link has been sent. Check your inbox or spam folder.`}
+                </p>
+                <button
+                  onClick={() => { setShowAuthModal(false); setAuthStep('form'); setAuthError(''); }}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow-lg transition"
+                >
+                  {lang === 'ar' ? 'حسناً، تم الفهم' : 'Got it, close'}
+                </button>
+              </div>
+            )}
+
+            {/* ── Main Login / Register Form ── */}
+            {authStep === 'form' && (
+              <form onSubmit={handleAuthSubmit} className="space-y-3">
+                {authMode === 'register' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'الاسم الكامل' : 'Full Name'}</label>
+                    <input type="text" required value={nameInput} onChange={e => setNameInput(e.target.value)}
+                      placeholder={lang === 'ar' ? 'مثال: أحمد محمود' : 'e.g. John Smith'}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
                   </div>
                 )}
-              </div>
 
-              {/* Country selector (register only) */}
-              {authMode === 'register' && (
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'الدولة / المنطقة الجغرافية' : 'Country / Region'}</label>
-                  <select value={countryInput} onChange={e => setCountryInput(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white">
-                    {COUNTRY_LIST.map(c => (
-                      <option key={c.code} value={c.code}>{c.flag} {lang === 'ar' ? c.name : c.nameEn}</option>
-                    ))}
-                  </select>
-                  {countryInput === 'YE' && (
-                    <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                      {lang === 'ar' ? '🇾🇪 ستظهر لك وسائل الدفع اليمنية (كريمي، جيب، ون كاش...) عند شحن المحفظة' : '🇾🇪 Yemeni wallets (Kuraimi, Jeeb, OneCash...) will be available for top-up'}
-                    </p>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'البريد الإلكتروني' : 'Email Address'}</label>
+                  <input type="email" required value={emailInput} onChange={e => setEmailInput(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'كلمة المرور' : 'Password'}</label>
+                  <div className="relative">
+                    <input type={showPassword ? 'text' : 'password'} required value={passwordInput}
+                      onChange={e => setPasswordInput(e.target.value)} placeholder="••••••••"
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white pr-10" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 end-3 flex items-center text-slate-400 hover:text-slate-600 text-sm">
+                      {showPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+                  {/* Password strength hints (on register) */}
+                  {authMode === 'register' && passwordInput.length > 0 && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-2">
+                      {[
+                        { ok: pwStrength.len,   ar: '8 أحرف على الأقل',      en: 'At least 8 chars' },
+                        { ok: pwStrength.upper, ar: 'حرف كبير (A-Z)',         en: 'Uppercase letter' },
+                        { ok: pwStrength.lower, ar: 'حرف صغير (a-z)',         en: 'Lowercase letter' },
+                        { ok: pwStrength.num,   ar: 'رقم (0-9)',              en: 'Number (0-9)' },
+                        { ok: pwStrength.sym,   ar: 'رمز خاص (@#$)',          en: 'Special char' },
+                      ].map((rule, i) => (
+                        <span key={i} className={`text-[10px] font-semibold flex items-center gap-1 ${rule.ok ? 'text-emerald-500' : 'text-slate-400'}`}>
+                          {rule.ok ? '✓' : '○'} {lang === 'ar' ? rule.ar : rule.en}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )}
 
-              <button type="submit"
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow-lg transition mt-2">
-                {authMode === 'login'
-                  ? (lang === 'ar' ? 'دخول الحساب' : 'Sign In')
-                  : (lang === 'ar' ? 'إنشاء الحساب' : 'Create Account')}
-              </button>
-            </form>
+                {/* Confirm Password (register only) */}
+                {authMode === 'register' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'تأكيد كلمة المرور' : 'Confirm Password'}</label>
+                    <div className="relative">
+                      <input type={showConfirmPw ? 'text' : 'password'} required value={confirmPwInput}
+                        onChange={e => setConfirmPwInput(e.target.value)} placeholder="••••••••"
+                        className={`w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-white pr-10 ${
+                          confirmPwInput
+                            ? confirmPwInput === passwordInput ? 'border-emerald-400' : 'border-rose-400'
+                            : 'border-slate-300 dark:border-slate-700'
+                        }`} />
+                      <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)}
+                        className="absolute inset-y-0 end-3 flex items-center text-slate-400 hover:text-slate-600 text-sm">
+                        {showConfirmPw ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+                    {confirmPwInput && confirmPwInput !== passwordInput && (
+                      <p className="text-[11px] text-rose-500 font-semibold">{lang === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match'}</p>
+                    )}
+                    {confirmPwInput && confirmPwInput === passwordInput && (
+                      <p className="text-[11px] text-emerald-500 font-semibold">✓ {lang === 'ar' ? 'متطابقتان' : 'Passwords match'}</p>
+                    )}
+                  </div>
+                )}
 
-            <div className="text-center pt-2 border-t border-slate-100 dark:border-slate-800">
-              <span className="text-[10px] font-bold text-slate-400">
-                🔒 {lang === 'ar' ? 'بيانات مشفرة وآمنة بالكامل' : 'Data encrypted & stored securely'}
-              </span>
-            </div>
+                {/* Country automatically defaulted to Yemen */}
+
+                {/* Error message */}
+                {authError && (
+                  <p className="text-xs text-rose-600 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2 font-semibold">{authError}</p>
+                )}
+
+                <button type="submit"
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow-lg transition mt-2">
+                  {authMode === 'login'
+                    ? (lang === 'ar' ? 'دخول الحساب' : 'Sign In')
+                    : (lang === 'ar' ? 'إنشاء الحساب' : 'Create Account')}
+                </button>
+
+                {/* Forgot Password (login only) */}
+                {authMode === 'login' && (
+                  <div className="text-center pt-1">
+                    <button type="button" onClick={handleForgotPassword}
+                      className="text-xs text-blue-600 dark:text-cyan-400 hover:underline font-bold">
+                      {lang === 'ar' ? 'نسيت كلمة المرور؟' : 'Forgot Password?'}
+                    </button>
+                  </div>
+                )}
+              </form>
+            )}
+
+            {authStep === 'form' && (
+              <div className="text-center pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400">
+                  🔒 {lang === 'ar' ? 'بيانات مشفرة وآمنة بالكامل' : 'Data encrypted & stored securely'}
+                </span>
+              </div>
+            )}
 
           </div>
         </div>
       )}
+
+      {/* Global Interactive TopUp Modal */}
+      <TopUpModal isOpen={isTopUpModalOpen} onClose={closeTopUpModal} />
     </>
   );
 };
