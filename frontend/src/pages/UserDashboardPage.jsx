@@ -33,6 +33,8 @@ export const UserDashboardPage = () => {
   const [copiedId, setCopiedId] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [selectedOrderForItemsModal, setSelectedOrderForItemsModal] = useState(null);
+
   const [profileForm, setProfileForm] = useState({
     name: user?.name || '',
     phone: user?.phone || user?.phone_number || '',
@@ -40,6 +42,80 @@ export const UserDashboardPage = () => {
     currentPassword: '',
     newPassword: ''
   });
+
+  const parseOrderItems = (ord) => {
+    let list = [];
+
+    if (ord.items && Array.isArray(ord.items) && ord.items.length > 0) {
+      ord.items.forEach((it, idx) => {
+        const targets = it.targetAccountIds || (it.targetAccountId ? it.targetAccountId.split('|').map(s => s.trim()) : []);
+        if (targets.length > 0) {
+          targets.forEach((tAcc, tIdx) => {
+            const rawTarget = tAcc.replace(/\[حساب \d+\]:\s*/, '').trim();
+            list.push({
+              id: `${it.id || idx}-${tIdx}`,
+              productTitle: it.productTitle || it.packageName || ord.productTitle || 'منتج رقمي',
+              packageName: it.packageName || it.packageTitle || 'باقة رقمية',
+              targetAccount: rawTarget,
+              priceUSD: it.priceUSD || (ord.priceUSD / targets.length),
+              status: ord.status,
+              code: ord.deliveredPayload?.pinCode || ord.pin_code || null
+            });
+          });
+        } else {
+          const rawTarget = (it.targetAccountId || ord.targetAccountId || 'N/A').replace(/\[حساب \d+\]:\s*/, '').trim();
+          list.push({
+            id: `${it.id || idx}`,
+            productTitle: it.productTitle || it.packageName || ord.productTitle || 'منتج رقمي',
+            packageName: it.packageName || it.packageTitle || 'باقة رقمية',
+            targetAccount: rawTarget,
+            priceUSD: it.priceUSD || ord.priceUSD,
+            status: ord.status,
+            code: ord.deliveredPayload?.pinCode || ord.pin_code || null
+          });
+        }
+      });
+    } else if (ord.targetAccountId && ord.targetAccountId.includes('|')) {
+      const parts = ord.targetAccountId.split('|').map(s => s.trim());
+      parts.forEach((p, idx) => {
+        const rawTarget = p.replace(/\[حساب \d+\]:\s*/, '').trim();
+        list.push({
+          id: `target-${idx}`,
+          productTitle: ord.productTitle || 'منتج رقمي',
+          packageName: `باقة #${idx+1}`,
+          targetAccount: rawTarget,
+          priceUSD: (ord.priceUSD / parts.length),
+          status: ord.status,
+          code: ord.deliveredPayload?.pinCode || ord.pin_code || null
+        });
+      });
+    } else {
+      const rawTarget = (ord.targetAccountId || 'N/A').replace(/\[حساب \d+\]:\s*/, '').trim();
+      list.push({
+        id: `item-1`,
+        productTitle: ord.productTitle || ord.product || 'منتج رقمي',
+        packageName: ord.packageTitle || 'باقة رقمية',
+        targetAccount: rawTarget,
+        priceUSD: ord.priceUSD || ord.amount,
+        status: ord.status,
+        code: ord.deliveredPayload?.pinCode || ord.pin_code || null
+      });
+    }
+
+    return list;
+  };
+
+  const getOrderTitleDisplay = (ord, itemsList) => {
+    if (itemsList.length > 1) {
+      const firstTitle = itemsList[0].productTitle || ord.productTitle;
+      const sameProduct = itemsList.every(i => (i.productTitle || ord.productTitle) === firstTitle);
+      if (sameProduct) {
+        return `باقات متنوعة - (${firstTitle})`;
+      }
+      return `باقات متنوعة (مجموعة خدمات - ${itemsList.length} باقات)`;
+    }
+    return ord.packageTitle || ord.productTitle || ord.product || 'منتج رقمي';
+  };
 
   const copyCode = (code, id) => {
     navigator.clipboard.writeText(code);
@@ -205,14 +281,29 @@ export const UserDashboardPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-200 font-bold">
-                {orders.map((ord) => (
-                  <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="p-4 font-mono font-black text-blue-600 dark:text-cyan-400">
-                      {ord.id}
-                    </td>
-                    <td className="p-4 font-black text-slate-900 dark:text-white">
-                      {ord.productTitle || ord.product}
-                    </td>
+                {orders.map((ord) => {
+                  const itemsList = parseOrderItems(ord);
+                  const titleDisplay = getOrderTitleDisplay(ord, itemsList);
+                  const isMulti = itemsList.length > 1;
+
+                  return (
+                    <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="p-4 font-mono font-black text-blue-600 dark:text-cyan-400">
+                        {ord.id}
+                      </td>
+                      <td className="p-4 font-black text-slate-900 dark:text-white">
+                        <div className="space-y-1.5">
+                          <div>{titleDisplay}</div>
+                          {isMulti && (
+                            <button
+                              onClick={() => setSelectedOrderForItemsModal(ord)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-black transition shadow-xs flex items-center gap-1 cursor-pointer w-fit"
+                            >
+                              <span>📦 {lang === 'ar' ? `استعراض الباقات المشتراة (${itemsList.length})` : `Inspect Packages (${itemsList.length})`}</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     <td className="p-4">
                       {(() => {
                         const pid = (ord.productId || '').toLowerCase();
@@ -333,7 +424,8 @@ export const UserDashboardPage = () => {
                       })()}
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>
@@ -461,6 +553,93 @@ export const UserDashboardPage = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL: CUSTOMER INSPECT PACKAGES IN MULTI-ITEM ORDER */}
+      {selectedOrderForItemsModal && (() => {
+        const modalItems = parseOrderItems(selectedOrderForItemsModal);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-5 text-right rtl:text-right">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      {lang === 'ar' ? `استعراض الباقات المطلوبة للطلب #${selectedOrderForItemsModal.id}` : `Packages for Order #${selectedOrderForItemsModal.id}`}
+                    </h3>
+                    <span className="text-xs font-bold text-blue-600 dark:text-cyan-400">
+                      {getOrderTitleDisplay(selectedOrderForItemsModal, modalItems)}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedOrderForItemsModal(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+              </div>
+
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                {modalItems.map((item, idx) => {
+                  const isDelivered = item.status === 'COMPLETED' || item.status === 'DELIVERED';
+                  const isRejected = item.status === 'REJECTED';
+                  return (
+                    <div key={item.id || idx} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-black">{idx + 1}</span>
+                          <span>{item.productTitle}</span>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                          isDelivered ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                          isRejected ? 'bg-rose-500/20 text-rose-500' : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                        }`}>
+                          {isDelivered ? (lang === 'ar' ? '🟢 تم التسليم والتفعيل' : 'DELIVERED') :
+                           isRejected ? (lang === 'ar' ? '🔴 تم الرفض' : 'REJECTED') : (lang === 'ar' ? '⏳ قيد المعالجة والانتظار' : 'PENDING')}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-bold pt-1 border-t border-slate-200 dark:border-slate-700/60">
+                        <div className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                          <span>🎯 الحساب/البريد المستهدف:</span>
+                          <span className="font-mono text-slate-900 dark:text-white font-black">{item.targetAccount}</span>
+                        </div>
+                        <div className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                          <span>💵 السعر:</span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(item.priceUSD)}</span>
+                        </div>
+                      </div>
+
+                      {/* Voucher / Code Display */}
+                      {isDelivered && item.code && (
+                        <div className="mt-2 p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center justify-between gap-2">
+                          <div className="font-mono font-black text-xs text-emerald-800 dark:text-emerald-300 truncate">
+                            🔑 {item.code}
+                          </div>
+                          <button
+                            onClick={() => copyCode(item.code, item.id)}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black transition flex items-center gap-1 shrink-0 cursor-pointer"
+                          >
+                            {copiedId === item.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedId === item.id ? (lang === 'ar' ? 'تم النسخ' : 'Copied') : (lang === 'ar' ? 'نسخ الكود' : 'Copy')}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  onClick={() => setSelectedOrderForItemsModal(null)}
+                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                >
+                  {lang === 'ar' ? 'إغلاق' : 'Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

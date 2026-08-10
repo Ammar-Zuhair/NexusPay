@@ -12,7 +12,7 @@ export const HomePage = () => {
 
   const validCategories = activeCategories && activeCategories.length > 0 ? activeCategories : MOCK_CATEGORIES;
   const activeCatIds = new Set(validCategories.map(c => c.id));
-  const catalogProducts = (products && products.length > 0) ? products : MOCK_GAMES;
+  const catalogProducts = products || [];
 
   // Fetch daily 10 random 5-star customer reviews from backend API
   useEffect(() => {

@@ -22,7 +22,7 @@ export const ProductDetailPage = () => {
   } = useApp();
 
   // Find the selected product dynamically
-  const currentGame = (products || []).find(g => g.id === selectedGameId) || (products || [])[0] || MOCK_GAMES[0];
+  const currentGame = (products || []).find(g => g.id === selectedGameId) || (products || [])[0];
 
   const availablePackages = (currentGame.packages || []).filter(pkg =>
     !pkg.countryCode ||
@@ -34,6 +34,21 @@ export const ProductDetailPage = () => {
   const [selectedPackage, setSelectedPackage] = useState(availablePackages[0] || null);
   const [targetAccountInput, setTargetAccountInput] = useState('');
   const [qty, setQty] = useState(1);
+  const [targetMode, setTargetMode] = useState('single'); // 'single' | 'multi'
+  const [multiTargetInputs, setMultiTargetInputs] = useState(['']);
+
+  // Sync multiTargetInputs length with qty
+  useEffect(() => {
+    setMultiTargetInputs(prev => {
+      const arr = [...prev];
+      if (arr.length < qty) {
+        while (arr.length < qty) arr.push('');
+      } else if (arr.length > qty) {
+        arr.length = qty;
+      }
+      return arr;
+    });
+  }, [qty]);
 
   // ID Verification States
   const [isVerifying, setIsVerifying] = useState(false);
@@ -49,6 +64,7 @@ export const ProductDetailPage = () => {
       setSelectedPackage(null);
     }
     setTargetAccountInput('');
+    setMultiTargetInputs(['']);
     setVerifiedPlayerName('');
     setVerificationError('');
     setVoucherMessage('');
@@ -133,9 +149,17 @@ export const ProductDetailPage = () => {
   const FieldIcon = fieldConfig.icon;
 
   const validateInput = () => {
-    if (!targetAccountInput.trim()) {
-      addToast(fieldConfig.errorMsg, 'error');
-      return false;
+    if (qty > 1 && targetMode === 'multi') {
+      const emptyIdx = multiTargetInputs.findIndex(val => !val.trim());
+      if (emptyIdx !== -1) {
+        addToast(lang === 'ar' ? `يرجى إدخال بيانات الحساب للباقة رقم (${emptyIdx + 1})` : `Please fill target account for item #${emptyIdx + 1}`, 'error');
+        return false;
+      }
+    } else {
+      if (!targetAccountInput.trim()) {
+        addToast(fieldConfig.errorMsg, 'error');
+        return false;
+      }
     }
     return true;
   };
@@ -146,7 +170,8 @@ export const ProductDetailPage = () => {
     title: `${typeof currentGame.title === 'string' ? currentGame.title : (currentGame.title[lang] || currentGame.title.ar || currentGame.title.en)} - ${selectedPackage.name}`,
     packageName: selectedPackage.name,
     priceUSD: selectedPackage.priceUSD,
-    targetAccountId: targetAccountInput.trim(),
+    targetAccountId: (qty > 1 && targetMode === 'multi') ? multiTargetInputs.map((v, i) => `[حساب ${i+1}]: ${v}`).join(' | ') : targetAccountInput.trim(),
+    targetAccountIds: (qty > 1 && targetMode === 'multi') ? multiTargetInputs : [targetAccountInput.trim()],
     productType: currentGame.productType,
     image: currentGame.image,
     quantity: qty
@@ -330,17 +355,69 @@ export const ProductDetailPage = () => {
                   <span>2. {fieldConfig.label}</span>
                 </label>
 
-                <input
-                  type={currentGame.productType === 'SUBSCRIPTION' || currentGame.productType === 'LICENSE_KEY' ? 'email' : 'text'}
-                  value={targetAccountInput}
-                  onChange={(e) => {
-                    setTargetAccountInput(e.target.value);
-                    setVerifiedPlayerName('');
-                    setVerificationError('');
-                  }}
-                  placeholder={fieldConfig.placeholder}
-                  className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-2xl text-sm font-black text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 transition shadow-inner"
-                />
+                {/* Target Mode Selector for Quantity > 1 */}
+                {qty > 1 && (
+                  <div className="bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-2xl p-3.5 space-y-2">
+                    <label className="text-xs font-black text-blue-900 dark:text-blue-200 block">
+                      🎯 خيارات شحن عدد ({qty}) باقات:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setTargetMode('single')}
+                        className={`py-2 px-3 rounded-xl border text-center transition ${targetMode === 'single' ? 'bg-blue-600 text-white font-black border-blue-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}
+                      >
+                        {lang === 'ar' ? 'شحن جميع الباقات لحساب واحد' : 'Single Account'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTargetMode('multi')}
+                        className={`py-2 px-3 rounded-xl border text-center transition ${targetMode === 'multi' ? 'bg-blue-600 text-white font-black border-blue-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}
+                      >
+                        {lang === 'ar' ? `شحن لكل باقة لحساب مستقل (${qty} حسابات)` : `Multiple Accounts (${qty})`}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Single Account Input */}
+                {(qty <= 1 || targetMode === 'single') && (
+                  <input
+                    type={currentGame.productType === 'SUBSCRIPTION' || currentGame.productType === 'LICENSE_KEY' ? 'email' : 'text'}
+                    value={targetAccountInput}
+                    onChange={(e) => {
+                      setTargetAccountInput(e.target.value);
+                      setVerifiedPlayerName('');
+                      setVerificationError('');
+                    }}
+                    placeholder={fieldConfig.placeholder}
+                    className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-2xl text-sm font-black text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 transition shadow-inner"
+                  />
+                )}
+
+                {/* Multiple Accounts Inputs */}
+                {qty > 1 && targetMode === 'multi' && (
+                  <div className="space-y-2.5">
+                    {multiTargetInputs.map((val, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
+                          {lang === 'ar' ? `بيانات/معرف الحساب للباقة رقم (${idx + 1}): *` : `Target Account for Package #${idx + 1}: *`}
+                        </label>
+                        <input
+                          type={currentGame.productType === 'SUBSCRIPTION' || currentGame.productType === 'LICENSE_KEY' ? 'email' : 'text'}
+                          value={val}
+                          onChange={(e) => {
+                            const next = [...multiTargetInputs];
+                            next[idx] = e.target.value;
+                            setMultiTargetInputs(next);
+                          }}
+                          placeholder={`${fieldConfig.placeholder} (#${idx + 1})`}
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-600 rounded-xl text-xs font-black text-slate-900 dark:text-white focus:outline-none shadow-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Player ID verification hidden temporarily */}
 

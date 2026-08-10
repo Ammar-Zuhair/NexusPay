@@ -11,6 +11,7 @@ export const CheckoutPage = () => {
   const { 
     lang, 
     cart, 
+    clearCart,
     removeFromCart,
     executeOrderCheckout, 
     setActiveTab, 

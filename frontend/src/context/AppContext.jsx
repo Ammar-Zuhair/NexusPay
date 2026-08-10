@@ -379,7 +379,7 @@ export const AppProvider = ({ children }) => {
   };
 
   // Dynamic Products & Providers State with Real-Time Backend API Sync
-  const [products, setProducts] = useState(MOCK_GAMES);
+  const [products, setProducts] = useState([]);
   const [providersList, setProvidersList] = useState(() => {
     try {
       const saved = localStorage.getItem('nexus_providers_list');
@@ -956,7 +956,7 @@ export const AppProvider = ({ children }) => {
   // Enterprise Place Order Engine (Delegated Entirely to Backend REST API)
   const executeOrderCheckout = async (orderDetails) => {
     const cid = `CID-${Math.floor(100000 + Math.random() * 900000)}`;
-    const product = MOCK_GAMES.find(g => g.id === orderDetails.productId) || MOCK_GAMES[0];
+    const product = (products || []).find(g => g.id === orderDetails.productId) || { id: orderDetails.productId, title: orderDetails.productTitle || 'منتج رقمي' };
 
     try {
       // Direct REST API Request to Express Backend Server
@@ -1014,6 +1014,10 @@ export const AppProvider = ({ children }) => {
         try { localStorage.setItem('nexus_user_orders', JSON.stringify(updatedOrdersList)); } catch (e) {}
         return updatedOrdersList;
       });
+
+      if (user && user.id) {
+        fetchBackendUserOrders(user.id);
+      }
 
       // Deduct Provider Balance in local presentation state from Backend Response
       setProvidersList(prev => prev.map(p => {

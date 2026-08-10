@@ -11,7 +11,7 @@ export const BrowsePage = () => {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('popular');
 
-  const catalogProducts = (products && products.length > 0) ? products : MOCK_GAMES;
+  const catalogProducts = products || [];
 
   const validCategories = activeCategories && activeCategories.length > 0 ? activeCategories : MOCK_CATEGORIES;
 

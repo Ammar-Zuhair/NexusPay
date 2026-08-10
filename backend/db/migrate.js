@@ -131,6 +131,7 @@ export const DDL_SCHEMA_QUERIES = [
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS country_code VARCHAR(10) DEFAULT 'GLOBAL';`,
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS packages_json JSONB DEFAULT '[]'::jsonb;`,
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;`,
+  `ALTER TABLE products DROP CONSTRAINT IF EXISTS products_product_type_check;`,
   `ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_url TEXT;`,
   `ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INT DEFAULT 0;`,
 

@@ -105,39 +105,6 @@ router.post('/orders', async (req, res, next) => {
     const tax = parseFloat(taxUSD) || 0;
     const netProfit = sellPrice - providerCost - gatewayFee - couponDiscount - tax;
 
-    let updatedBalance = null;
-    // Check & Deduct Wallet Balance in Database if paying via WALLET
-    if (paymentMethod === 'WALLET' && currentUserId) {
-      try {
-        const walletCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1', [currentUserId]);
-        if (walletCheck.rows.length === 0) {
-          await query(
-            `INSERT INTO wallets (id, user_id, available_balance, held_balance, currency)
-             VALUES ($1, $2, 500.00, 0.00, 'USD') ON CONFLICT (id) DO NOTHING`,
-            [`wlt-${currentUserId}`, currentUserId]
-          );
-        }
-
-        const freshCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1', [currentUserId]);
-        if (freshCheck.rows.length > 0) {
-          const avail = parseFloat(freshCheck.rows[0].available_balance) || 0;
-          if (avail < sellPrice) {
-            return res.status(400).json({ error: 'رصيد محفظتك غير كافٍ لشراء هذا المنتج. يرجى شحن المحفظة أولاً.' });
-          }
-          const deductRes = await query(
-            'UPDATE wallets SET available_balance = available_balance - $1 WHERE user_id = $2 RETURNING available_balance',
-            [sellPrice, currentUserId]
-          );
-          if (deductRes.rows.length > 0) {
-            updatedBalance = parseFloat(deductRes.rows[0].available_balance);
-            console.log(`[WALLETS API SUCCESS] User ${currentUserId} balance deducted by $${sellPrice}. New balance: $${updatedBalance}`);
-          }
-        }
-      } catch (wErr) {
-        console.warn('[BACKEND WALLET DEDUCT WARN]', wErr.message);
-      }
-    }
-
     const orderId = `NP-${Date.now().toString().slice(-6)}`;
     let newOrder = {
       id: orderId,
@@ -181,13 +148,46 @@ router.post('/orders', async (req, res, next) => {
 
     newOrder.status = 'PENDING';
 
-    // Save to Database with ACID Transaction (Master Order + Order_Items Junction Table)
+    let updatedBalance = null;
+
+    // Save to Database with ACID Transaction (Atomic Wallet Deduct + Master Order + Order_Items)
     try {
       const dbUserId = currentUserId || (isGuest ? 'guest-user' : null);
 
       await query('BEGIN');
 
-      // 1. Insert Master Order into `orders` table
+      // 1. Check & Deduct Wallet Balance ATOMICALLY inside Transaction
+      if (paymentMethod === 'WALLET' && currentUserId) {
+        const walletCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1 FOR UPDATE', [currentUserId]);
+        if (walletCheck.rows.length === 0) {
+          await query(
+            `INSERT INTO wallets (id, user_id, available_balance, held_balance, currency)
+             VALUES ($1, $2, 500.00, 0.00, 'USD') ON CONFLICT (id) DO NOTHING`,
+            [`wlt-${currentUserId}`, currentUserId]
+          );
+        }
+
+        const freshCheck = await query('SELECT available_balance FROM wallets WHERE user_id = $1 FOR UPDATE', [currentUserId]);
+        if (freshCheck.rows.length > 0) {
+          const avail = parseFloat(freshCheck.rows[0].available_balance) || 0;
+          if (avail < sellPrice) {
+            await query('ROLLBACK');
+            return res.status(400).json({ 
+              error: `رصيد محفظتك غير كافٍ. الرصيد المتاح بقاعدة البيانات هو ($${avail.toFixed(2)}) بينما إجمالي الفاتورة هو ($${sellPrice.toFixed(2)}). يرجى شحن المحفظة أولاً.` 
+            });
+          }
+          const deductRes = await query(
+            'UPDATE wallets SET available_balance = available_balance - $1 WHERE user_id = $2 RETURNING available_balance',
+            [sellPrice, currentUserId]
+          );
+          if (deductRes.rows.length > 0) {
+            updatedBalance = parseFloat(deductRes.rows[0].available_balance);
+            console.log(`[WALLETS API SUCCESS] User ${currentUserId} balance deducted by $${sellPrice}. New balance: $${updatedBalance}`);
+          }
+        }
+      }
+
+      // 2. Insert Master Order into `orders` table
       await query(
         `INSERT INTO orders (id, order_number, correlation_id, idempotency_key, user_id, product_id, product_title, package_title, user_name, user_email, guest_email, status, total_amount, total_usd, payment_method, target_account_id, delivered_payload, delivery_payload, items_json, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $16, $17, $18)
@@ -226,13 +226,37 @@ router.post('/orders', async (req, res, next) => {
         ]
       );
 
-      // 2. Populate Normalized `order_items` Junction Table (ACID Atomicity & Price Lock)
+      // 3. Populate Normalized `order_items` Junction Table (ACID Atomicity & Price Lock)
       for (let i = 0; i < newOrder.items.length; i++) {
         const item = newOrder.items[i];
         const itemId = `item-${newOrder.id}-${i + 1}`;
         const itemProdId = item.productId || item.id || newOrder.productId || 'pubg-mobile';
         const unitPrice = parseFloat(item.priceUSD || item.price || (newOrder.priceUSD / newOrder.items.length));
         const itemQty = parseInt(item.quantity || 1, 10);
+        const itemTitle = item.productTitle || item.packageTitle || newOrder.productTitle || 'منتج رقمي';
+
+        // Ensure category exists in categories table to satisfy FK constraint
+        await query(
+          `INSERT INTO categories (id, slug, title_json)
+           VALUES ('cat-games', 'game-topups', $1)
+           ON CONFLICT (id) DO NOTHING`,
+          [JSON.stringify({ ar: 'الألعاب', en: 'Games' })]
+        );
+
+        // Ensure product exists in products table to satisfy FK constraint
+        const prodSlug = `${String(itemProdId).toLowerCase().replace(/[^a-z0-9]/g, '-')}-${i + 1}`;
+        await query(
+          `INSERT INTO products (id, category_id, title_json, slug, product_type, base_cost, sale_price)
+           VALUES ($1, 'cat-games', $2, $3, 'DIRECT_TOPUP', $4, $5)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            itemProdId,
+            JSON.stringify({ ar: itemTitle, en: itemTitle }),
+            prodSlug,
+            unitPrice * 0.85,
+            unitPrice
+          ]
+        );
 
         await query(
           `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity)
@@ -249,6 +273,7 @@ router.post('/orders', async (req, res, next) => {
     } catch (dbErr) {
       try { await query('ROLLBACK'); } catch (rbErr) {}
       console.warn('[ORDERS API TRANSACTION NOTE] DB transaction fallback:', dbErr.message);
+      return res.status(500).json({ error: `فشل تنفيذ الطلب في قاعدة البيانات: ${dbErr.message}` });
     }
 
     const mapped = mapOrderRow(newOrder);
@@ -309,7 +334,8 @@ router.get('/orders', async (req, res, next) => {
  */
 router.get('/orders/user/:userId', async (req, res, next) => {
   try {
-    const rawUserId = userId.trim();
+    const { userId } = req.params;
+    const rawUserId = (userId || '').trim();
     const numericOnly = rawUserId.replace(/\D/g, '');
 
     try {

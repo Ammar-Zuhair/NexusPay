@@ -37,7 +37,7 @@ import {
   DollarSign, SlidersHorizontal, AlertTriangle, Radio, HardDrive, Key,
   CheckCircle2, Zap, Lock, RefreshCw, Users, FileText, Play, Building, Award, Shield, Clock,
   Plus, PlusCircle, Trash2, Edit3, ShoppingBag, ShoppingCart, Layers, X, Globe, Cpu, Check, Image as ImageIcon,
-  ToggleLeft, ToggleRight, Tag, MessageSquare, Mail
+  ToggleLeft, ToggleRight, Tag, MessageSquare, Mail, Package
 } from 'lucide-react';
 
 export const AdminDashboardPage = () => {
@@ -110,6 +110,8 @@ export const AdminDashboardPage = () => {
 
   const [showOrderEmailModal, setShowOrderEmailModal] = useState(false);
   const [selectedOrderForDispatch, setSelectedOrderForDispatch] = useState(null);
+  const [dispatchItemsList, setDispatchItemsList] = useState([]);
+  const [activeDispatchItemIdx, setActiveDispatchItemIdx] = useState(0);
   const [orderEmailForm, setOrderEmailForm] = useState({
     recipientEmail: '',
     emailSubject: '',
@@ -192,26 +194,94 @@ export const AdminDashboardPage = () => {
 
   const handleOpenDispatchModal = (order) => {
     setSelectedOrderForDispatch(order);
-    const targetEmail = order.guestEmail || order.userEmail || order.targetAccountId || 'customer@domain.com';
-    const prodTitle = order.productTitle || order.title || 'بطاقة شحن رقمية';
-    const initialCode = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.pinCode : null) || order.pin_code || '';
-    const initialSerial = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.serialNumber : null) || order.serial_number || '';
     const orderId = order.id || 'NP-1001';
+    const mainRecipientEmail = order.guestEmail || order.userEmail || '';
+
+    let itemsList = [];
+
+    // Parse multi-items array or target accounts list
+    if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+      order.items.forEach((it, idx) => {
+        const targets = it.targetAccountIds || (it.targetAccountId ? it.targetAccountId.split('|').map(s => s.trim()) : []);
+        if (targets.length > 0) {
+          targets.forEach((tAcc, tIdx) => {
+            const rawTarget = tAcc.replace(/\[حساب \d+\]:\s*/, '').trim();
+            itemsList.push({
+              id: `item-${idx+1}-target-${tIdx+1}`,
+              title: `${it.productTitle || it.title || it.packageName || order.productTitle || 'منتج'} (حساب #${tIdx+1})`,
+              targetAccount: rawTarget,
+              recipientEmail: (rawTarget.includes('@') ? rawTarget : mainRecipientEmail),
+              code: '',
+              serial: '',
+              status: 'PENDING'
+            });
+          });
+        } else {
+          const rawTarget = (it.targetAccountId || order.targetAccountId || 'N/A').replace(/\[حساب \d+\]:\s*/, '').trim();
+          itemsList.push({
+            id: `item-${idx+1}`,
+            title: it.productTitle || it.title || it.packageName || order.productTitle || 'منتج',
+            targetAccount: rawTarget,
+            recipientEmail: (rawTarget.includes('@') ? rawTarget : mainRecipientEmail),
+            code: '',
+            serial: '',
+            status: 'PENDING'
+          });
+        }
+      });
+    } else if (order.targetAccountId && order.targetAccountId.includes('|')) {
+      const parts = order.targetAccountId.split('|').map(s => s.trim());
+      parts.forEach((p, idx) => {
+        const rawTarget = p.replace(/\[حساب \d+\]:\s*/, '').trim();
+        itemsList.push({
+          id: `target-${idx+1}`,
+          title: `${order.productTitle || 'منتج رقمي'} (حساب #${idx+1})`,
+          targetAccount: rawTarget,
+          recipientEmail: (rawTarget.includes('@') ? rawTarget : mainRecipientEmail),
+          code: '',
+          serial: '',
+          status: 'PENDING'
+        });
+      });
+    } else {
+      const rawTarget = (order.targetAccountId || 'N/A').replace(/\[حساب \d+\]:\s*/, '').trim();
+      const initialCode = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.pinCode : null) || order.pin_code || '';
+      const initialSerial = (order.deliveredPayload && typeof order.deliveredPayload === 'object' ? order.deliveredPayload.serialNumber : null) || order.serial_number || '';
+      itemsList.push({
+        id: `item-1`,
+        title: order.productTitle || 'منتج رقمي',
+        targetAccount: rawTarget,
+        recipientEmail: (rawTarget.includes('@') ? rawTarget : mainRecipientEmail),
+        code: initialCode,
+        serial: initialSerial,
+        status: 'PENDING'
+      });
+    }
+
+    setDispatchItemsList(itemsList);
+    setActiveDispatchItemIdx(0);
+
+    const activeItem = itemsList[0] || {};
+    const prodTitle = activeItem.title || order.productTitle || 'بطاقة شحن رقمية';
+    const targetEmail = activeItem.recipientEmail || mainRecipientEmail || 'customer@domain.com';
+    const initialCode = activeItem.code || '';
+    const initialSerial = activeItem.serial || '';
 
     const defaultBody = `مرحباً بك،
 
 شكراً لتسوقك من منصة NexusPay Store.
-يسعدنا إبلاغك بأنه تم التثبت والموافقة على طلبك رقم (#${orderId}) وإتمام تسليمه بنجاح!
+يسعدنا إبلاغك بأنه تم التثبت والموافقة على طلبك رقم (#${orderId}) - [${prodTitle}] وإتمام تسليمه بنجاح!
 
-تفاصيل المنتج المسلم:
+تفاصيل الحساب/المنتج المسلم:
 -----------------------------------------
+الحساب/البريد المستهدف: ${activeItem.targetAccount || 'N/A'}
 اسم المنتج: ${prodTitle}
 الكود الرقمي / الرمز: ${initialCode || '[أدخل الكود هنا]'}
 الرقم التسلسلي (S/N): ${initialSerial || '[الرقم التسلسلي]'}
 -----------------------------------------
 
 تعليمات الاستخدام والتفعيل:
-يرجى إدخال الكود المرفق أعلاه في خانة التفعيل الخاصة بـ ${prodTitle}.
+يرجى إدخال الكود المرفق أعلاه في خانة التفعيل الخاصة بك.
 
 تحياتنا،
 فريق دعم وتنفيذ طلبات NexusPay Store`;
@@ -225,6 +295,47 @@ export const AdminDashboardPage = () => {
       emailBody: defaultBody
     });
     setShowOrderEmailModal(true);
+  };
+
+  const handleSwitchDispatchItem = (idx) => {
+    setActiveDispatchItemIdx(idx);
+    const item = dispatchItemsList[idx];
+    if (!item) return;
+
+    const orderId = selectedOrderForDispatch?.id || 'NP-1001';
+    const mainRecipientEmail = selectedOrderForDispatch?.guestEmail || selectedOrderForDispatch?.userEmail || '';
+    const prodTitle = item.title || selectedOrderForDispatch?.productTitle || 'بطاقة شحن رقمية';
+    const targetEmail = item.recipientEmail || mainRecipientEmail || 'customer@domain.com';
+    const initialCode = item.code || '';
+    const initialSerial = item.serial || '';
+
+    const defaultBody = `مرحباً بك،
+
+شكراً لتسوقك من منصة NexusPay Store.
+يسعدنا إبلاغك بأنه تم التثبت والموافقة على طلبك رقم (#${orderId}) - [${prodTitle}] وإتمام تسليمه بنجاح!
+
+تفاصيل الحساب/المنتج المسلم:
+-----------------------------------------
+الحساب/البريد المستهدف: ${item.targetAccount || 'N/A'}
+اسم المنتج: ${prodTitle}
+الكود الرقمي / الرمز: ${initialCode || '[أدخل الكود هنا]'}
+الرقم التسلسلي (S/N): ${initialSerial || '[الرقم التسلسلي]'}
+-----------------------------------------
+
+تعليمات الاستخدام والتفعيل:
+يرجى إدخال الكود المرفق أعلاه في خانة التفعيل الخاصة بك.
+
+تحياتنا،
+فريق دعم وتنفيذ طلبات NexusPay Store`;
+
+    setOrderEmailForm({
+      recipientEmail: targetEmail,
+      emailSubject: `تأكيد تسليم كود منتج: ${prodTitle} (طلب #${orderId})`,
+      productTitle: prodTitle,
+      fulfillmentCode: initialCode,
+      serialNumber: initialSerial,
+      emailBody: defaultBody
+    });
   };
 
   const handleSendOrderEmailSubmit = async (e) => {
@@ -243,9 +354,25 @@ export const AdminDashboardPage = () => {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(lang === 'ar' ? `تم اعتماد الطلب وإرسال الكود بنجاح إلى: ${orderEmailForm.recipientEmail}` : 'Email dispatched successfully!');
-        setShowOrderEmailModal(false);
-        fetchBackendOrders();
+        addToast(lang === 'ar' ? `تم إرسال كود هذا الحساب بنجاح إلى: ${orderEmailForm.recipientEmail}` : 'Email dispatched successfully!');
+        
+        // Mark current item in dispatchItemsList as DELIVERED
+        const updatedList = [...dispatchItemsList];
+        if (updatedList[activeDispatchItemIdx]) {
+          updatedList[activeDispatchItemIdx].status = 'DELIVERED';
+          updatedList[activeDispatchItemIdx].code = orderEmailForm.fulfillmentCode;
+          setDispatchItemsList(updatedList);
+        }
+
+        // Check if there are remaining pending items
+        const nextPendingIdx = updatedList.findIndex((it, idx) => idx > activeDispatchItemIdx && it.status !== 'DELIVERED');
+        if (nextPendingIdx !== -1) {
+          handleSwitchDispatchItem(nextPendingIdx);
+        } else {
+          // All items dispatched!
+          setShowOrderEmailModal(false);
+          fetchBackendOrders();
+        }
       } else {
         throw new Error(data.error || 'Failed to dispatch email');
       }
@@ -3251,6 +3378,42 @@ export const AdminDashboardPage = () => {
             </div>
 
             <form onSubmit={handleSendOrderEmailSubmit} className="space-y-4 text-xs font-extrabold">
+
+              {/* Multi-Item / Multi-Account Tabs Bar */}
+              {dispatchItemsList.length > 1 && (
+                <div className="bg-slate-100 dark:bg-slate-800/80 p-2.5 rounded-2xl space-y-2 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-200">
+                    <span>📦 هذا الطلب يحتوي على عدد ({dispatchItemsList.length}) حسابات/منتجات مستقلة:</span>
+                    <span className="text-blue-600 dark:text-cyan-400">
+                      محدد حالياً: ({activeDispatchItemIdx + 1} / {dispatchItemsList.length})
+                    </span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                    {dispatchItemsList.map((item, idx) => {
+                      const isActive = idx === activeDispatchItemIdx;
+                      const isDelivered = item.status === 'DELIVERED';
+                      return (
+                        <button
+                          key={item.id || idx}
+                          type="button"
+                          onClick={() => handleSwitchDispatchItem(idx)}
+                          className={`px-3 py-2 rounded-xl text-xs font-black transition shrink-0 flex items-center gap-1.5 cursor-pointer border ${
+                            isActive
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-400/30'
+                              : isDelivered
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
+                          }`}
+                        >
+                          <span>{isDelivered ? '🟢' : '⏳'}</span>
+                          <span>{item.title}</span>
+                          <span className="opacity-75 font-mono text-[10px]">({item.targetAccount || 'N/A'})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-600 dark:text-slate-400 mb-1">عنوان البريد الإلكتروني للمستلم *</label>
                 <input
