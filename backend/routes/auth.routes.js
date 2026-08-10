@@ -71,7 +71,7 @@ router.post('/auth/register', async (req, res, next) => {
     }
 
     const numericSeq    = Math.floor(100000 + Math.random() * 900000);
-    const userId        = `usr-${numericSeq}`;
+    const userId        = String(numericSeq);
     const hashedPassword = hashPassword(password);
 
     try {
@@ -217,13 +217,13 @@ router.post('/auth/login', async (req, res, next) => {
             console.warn('[WALLET FETCH]', wErr.message);
           }
 
-          const numId = dbUser.id ? dbUser.id.replace(/\D/g, '') : '784920';
+          const numId = dbUser.id ? String(dbUser.id).replace(/\D/g, '') : '';
 
           return res.json({
             message: 'Login successful',
             user: {
               id:          dbUser.id,
-              numericId:   numId || '784920',
+              numericId:   numId || String(dbUser.id),
               name:        dbUser.full_name,
               email:       dbUser.email,
               role:        dbUser.role_code || 'USER',

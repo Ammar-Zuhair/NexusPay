@@ -86,7 +86,7 @@ router.post('/orders', async (req, res, next) => {
       throw err;
     }
 
-    const targetUserId = userId || (req.body.user ? req.body.user.id : null) || (isGuest ? 'guest-user' : 'usr-demo-01');
+    const targetUserId = userId || (req.body.user ? req.body.user.id : null) || (isGuest ? 'guest-user' : userEmail);
     const currentUserId = targetUserId;
 
     // 1. Calculate Comprehensive Net Profit Formula:
@@ -277,11 +277,8 @@ router.get('/orders', async (req, res, next) => {
  */
 router.get('/orders/user/:userId', async (req, res, next) => {
   try {
-    const { userId } = req.params;
-
-    if (!userId || userId === 'null' || userId === 'undefined') {
-      return res.json({ success: true, count: 0, orders: [] });
-    }
+    const rawUserId = userId.trim();
+    const numericOnly = rawUserId.replace(/\D/g, '');
 
     try {
       const sqlResult = await query(
@@ -289,13 +286,14 @@ router.get('/orders/user/:userId', async (req, res, next) => {
          FROM orders o 
          LEFT JOIN users u ON o.user_id = u.id 
          WHERE o.user_id = $1 
+            OR ($2 <> '' AND o.user_id = $2)
+            OR ($2 <> '' AND o.user_id = 'usr-' || $2)
             OR LOWER(o.user_email) = LOWER($1)
             OR LOWER(o.guest_email) = LOWER($1)
-            OR LOWER(o.user_email) = (SELECT LOWER(email) FROM users WHERE id = $1)
-            OR LOWER(o.guest_email) = (SELECT LOWER(email) FROM users WHERE id = $1)
+            OR o.user_id IN (SELECT id FROM users WHERE LOWER(email) = LOWER($1) OR id = $1 OR ($2 <> '' AND id = $2))
          ORDER BY o.created_at DESC 
          LIMIT 100`,
-        [userId]
+        [rawUserId, numericOnly]
       );
 
       const mappedOrders = sqlResult && sqlResult.rows ? sqlResult.rows.map(mapOrderRow) : [];
@@ -310,7 +308,15 @@ router.get('/orders/user/:userId', async (req, res, next) => {
     }
 
     const filteredStore = Array.from(ordersDb.values())
-      .filter(o => o.userId === userId || o.user_id === userId || (o.userEmail && o.userEmail.toLowerCase() === userId.toLowerCase()))
+      .filter(o => {
+        const oUser = String(o.userId || o.user_id || '');
+        const oEmail = String(o.userEmail || o.guestEmail || '').toLowerCase();
+        const reqLow = rawUserId.toLowerCase();
+        
+        if (oUser === rawUserId || (numericOnly && oUser.replace(/\D/g, '') === numericOnly)) return true;
+        if (oEmail && oEmail === reqLow) return true;
+        return false;
+      })
       .map(mapOrderRow);
 
     res.json({

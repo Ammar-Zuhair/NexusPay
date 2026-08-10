@@ -128,10 +128,13 @@ export const AppProvider = ({ children }) => {
   const [userCountry, setUserCountry] = useState(() => localStorage.getItem('nexus_user_country') || 'YE');
   const [browsingCountry, setBrowsingCountry] = useState(() => localStorage.getItem('nexus_browsing_country') || 'YE');
 
-  // Persistent Orders History
+  // Persistent Orders History (User-Scoped)
   const [orders, setOrders] = useState(() => {
     try {
-      const saved = localStorage.getItem('nexus_user_orders');
+      const savedUser = localStorage.getItem('nexus_user_session');
+      const currentUser = savedUser ? JSON.parse(savedUser) : null;
+      const key = currentUser?.id ? `nexus_user_orders_${currentUser.id}` : 'nexus_user_orders_guest';
+      const saved = localStorage.getItem(key);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
@@ -189,12 +192,16 @@ export const AppProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    // Immediately clear previous user's orders when user changes or logs out
+    setOrders([]);
     if (user && user.id) {
       fetchWallet(user.id);
       fetchBackendUserOrders(user.id);
     } else {
-      setOrders([]);
-      try { localStorage.removeItem('nexus_user_orders'); } catch (e) {}
+      try { 
+        localStorage.removeItem('nexus_user_orders');
+        localStorage.removeItem('nexus_user_orders_guest');
+      } catch (e) {}
     }
   }, [user?.id]);
 
@@ -202,7 +209,6 @@ export const AppProvider = ({ children }) => {
   const fetchBackendUserOrders = async (userId) => {
     if (!userId) {
       setOrders([]);
-      try { localStorage.removeItem('nexus_user_orders'); } catch (e) {}
       return;
     }
     try {
@@ -210,10 +216,14 @@ export const AppProvider = ({ children }) => {
       const data = await res.json();
       if (res.ok && Array.isArray(data.orders)) {
         setOrders(data.orders);
-        try { localStorage.setItem('nexus_user_orders', JSON.stringify(data.orders)); } catch (e) {}
+        try { 
+          localStorage.setItem(`nexus_user_orders_${userId}`, JSON.stringify(data.orders)); 
+        } catch (e) {}
       } else {
         setOrders([]);
-        try { localStorage.setItem('nexus_user_orders', '[]'); } catch (e) {}
+        try { 
+          localStorage.setItem(`nexus_user_orders_${userId}`, '[]'); 
+        } catch (e) {}
       }
     } catch (err) {
       console.warn('[USER ORDERS FETCH WARN]', err.message);
@@ -275,10 +285,11 @@ export const AppProvider = ({ children }) => {
     };
   }, []);
 
-  // Auto-sync Orders to localStorage
+  // Auto-sync Orders to localStorage (User-Scoped)
   useEffect(() => {
-    localStorage.setItem('nexus_user_orders', JSON.stringify(orders));
-  }, [orders]);
+    const key = user?.id ? `nexus_user_orders_${user.id}` : 'nexus_user_orders_guest';
+    localStorage.setItem(key, JSON.stringify(orders));
+  }, [orders, user?.id]);
 
   // Persistent Categories State with Enable/Disable Status
   const [categories, setCategories] = useState(() => {

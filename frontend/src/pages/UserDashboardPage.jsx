@@ -64,7 +64,7 @@ export const UserDashboardPage = () => {
 
   const myDepositRequests = depositRequests.filter(r => r.userId === user?.id || r.userEmail === user?.email);
 
-  const numericUserId = user ? (user.numericId || user.id?.replace(/\D/g, '') || '784920') : 'N/A';
+  const numericUserId = user ? (user.numericId || (user.id ? String(user.id).replace(/\D/g, '') : '') || String(user.id || 'N/A')) : 'N/A';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 mt-12">
@@ -223,9 +223,10 @@ export const UserDashboardPage = () => {
                         const isGameDirect = !isSubscription && (pid.includes('pubg') || pid.includes('freefire') || pid.includes('roblox') || pid.includes('mobile-legends') || (targetId && targetId !== 'DIRECT_CODE' && targetId !== 'N/A' && !targetId.includes('@')));
                         
                         if (isGameDirect) {
+                          const displayTargetId = (targetId && targetId !== 'DIRECT_CODE' && targetId !== 'N/A') ? targetId : numericUserId;
                           return (
                             <span className="px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-600 dark:text-cyan-400 font-mono font-black border border-blue-500/20 inline-flex items-center gap-1">
-                              🎮 ID: {targetId || '5412896301'}
+                              🎮 ID: {displayTargetId}
                             </span>
                           );
                         }
