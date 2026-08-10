@@ -244,47 +244,46 @@ export const CheckoutPage = () => {
 
     try {
       const itemsToProcess = cart.length > 0 ? cart : [defaultItem];
-      const processedOrders = [];
+      const mainItem = itemsToProcess[0];
 
-      for (const item of itemsToProcess) {
-        const itemTotal = (item.priceUSD || 9.99) * (item.quantity || 1);
-        const order = await executeOrderCheckout({
-          productId: item.productId || item.id,
-          productTitle: typeof item.title === 'string' ? item.title : (item.title?.ar || item.title?.en || 'منتج رقمي'),
-          packageTitle: item.packageTitle || item.packageName || (typeof item.title === 'string' ? item.title : 'باقة رقمية'),
-          quantity: item.quantity || 1,
-          targetAccountId: item.targetAccountId || item.playerId || item.email || 'N/A',
-          totalUSD: itemTotal,
-          paymentMethod: paymentMethod,
-          items: itemsToProcess.map(i => ({
-            productId: i.productId || i.id,
-            productTitle: typeof i.title === 'string' ? i.title : (i.title?.ar || i.title?.en || 'منتج رقمي'),
-            packageTitle: i.packageTitle || i.packageName || (typeof i.title === 'string' ? i.title : 'باقة رقمية'),
-            quantity: i.quantity || 1,
-            priceUSD: i.priceUSD || 9.99
-          })),
-          paymentDetails: paymentMethod === 'YEMEN_TRANSFER' ? {
-            bankName: selectedBank.name,
-            accountNumber: selectedBank.accountNumber,
-            recipientName: selectedBank.recipientName,
-            referenceNumber,
-            userNotes
-          } : {},
-          isGuest: user ? false : isGuest,
-          guestEmail: user ? user.email : guestEmail,
-          guestPhone: user ? user.phone : guestPhone
-        });
-        processedOrders.push(order);
-      }
+      const masterPayload = {
+        productId: mainItem.productId || mainItem.id,
+        productTitle: typeof mainItem.title === 'string' ? mainItem.title : (mainItem.title?.ar || mainItem.title?.en || 'منتج رقمي'),
+        packageTitle: itemsToProcess.length > 1 ? `سلة مشتريات متعددة (${itemsToProcess.length} منتجات)` : (mainItem.packageTitle || mainItem.packageName || 'باقة رقمية'),
+        quantity: itemsToProcess.reduce((sum, i) => sum + (i.quantity || 1), 0),
+        targetAccountId: mainItem.targetAccountId || mainItem.playerId || mainItem.email || 'N/A',
+        totalUSD: totalUSD,
+        paymentMethod: paymentMethod,
+        items: itemsToProcess.map(i => ({
+          productId: i.productId || i.id,
+          productTitle: typeof i.title === 'string' ? i.title : (i.title?.ar || i.title?.en || 'منتج رقمي'),
+          packageTitle: i.packageTitle || i.packageName || (typeof i.title === 'string' ? i.title : 'باقة رقمية'),
+          targetAccountId: i.targetAccountId || i.playerId || i.email || 'N/A',
+          quantity: i.quantity || 1,
+          priceUSD: i.priceUSD || 9.99
+        })),
+        paymentDetails: paymentMethod === 'YEMEN_TRANSFER' ? {
+          bankName: selectedBank?.name,
+          accountNumber: selectedBank?.accountNumber,
+          recipientName: selectedBank?.recipientName,
+          referenceNumber,
+          userNotes
+        } : {},
+        isGuest: user ? false : isGuest,
+        guestEmail: user ? user.email : guestEmail,
+        guestPhone: user ? user.phone : guestPhone
+      };
+
+      const order = await executeOrderCheckout(masterPayload);
 
       setCompletedOrder({
-        ...processedOrders[0],
+        ...order,
         itemCount: itemsToProcess.length,
         itemsList: itemsToProcess,
-        processedOrders: processedOrders,
         totalUSD: totalUSD
       });
       clearCheckoutDraft();
+      if (cart.length > 0) clearCart();
     } catch (err) {
       alert((lang === 'ar' ? 'فشل تنفيذ الطلب: ' : 'Order failed: ') + err.message);
     } finally {

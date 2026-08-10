@@ -173,10 +173,13 @@ router.post('/orders', async (req, res, next) => {
 
     newOrder.status = 'PENDING';
 
-    // Save to Database if PostgreSQL connected
+    // Save to Database with ACID Transaction (Master Order + Order_Items Junction Table)
     try {
       const dbUserId = currentUserId || (isGuest ? 'guest-user' : null);
 
+      await query('BEGIN');
+
+      // 1. Insert Master Order into `orders` table
       await query(
         `INSERT INTO orders (id, order_number, correlation_id, idempotency_key, user_id, product_id, product_title, package_title, user_name, user_email, guest_email, status, total_amount, total_usd, payment_method, target_account_id, delivered_payload, delivery_payload, items_json, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $16, $17, $18)
@@ -214,9 +217,30 @@ router.post('/orders', async (req, res, next) => {
           newOrder.createdAt
         ]
       );
-      console.log(`[ORDERS DB SUCCESS] Order ${newOrder.id} saved in Postgres for user ${dbUserId} (${newOrder.userEmail})`);
+
+      // 2. Populate Normalized `order_items` Junction Table (ACID Atomicity & Price Lock)
+      for (let i = 0; i < newOrder.items.length; i++) {
+        const item = newOrder.items[i];
+        const itemId = `item-${newOrder.id}-${i + 1}`;
+        const itemProdId = item.productId || item.id || newOrder.productId || 'pubg-mobile';
+        const unitPrice = parseFloat(item.priceUSD || item.price || (newOrder.priceUSD / newOrder.items.length));
+        const itemQty = parseInt(item.quantity || 1, 10);
+
+        await query(
+          `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO UPDATE SET
+             unit_price = EXCLUDED.unit_price,
+             quantity = EXCLUDED.quantity`,
+          [itemId, newOrder.id, itemProdId, unitPrice, itemQty]
+        );
+      }
+
+      await query('COMMIT');
+      console.log(`[ORDERS DB SUCCESS] Master Order ${newOrder.id} and ${newOrder.items.length} order_items committed in Postgres for user ${dbUserId}`);
     } catch (dbErr) {
-      console.warn('[ORDERS API NOTE] DB transaction fallback:', dbErr.message);
+      try { await query('ROLLBACK'); } catch (rbErr) {}
+      console.warn('[ORDERS API TRANSACTION NOTE] DB transaction fallback:', dbErr.message);
     }
 
     const mapped = mapOrderRow(newOrder);

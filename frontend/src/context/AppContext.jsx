@@ -10,7 +10,7 @@ import { SmartRoutingEngine } from '../services/providers/SmartRoutingEngine';
 import { DLQManager } from '../services/dlq/DLQManager';
 import { TracingService } from '../services/observability/TracingService';
 
-import { API_BASE_URL } from '../utils/api.js';
+import { API_BASE_URL, parseJsonResponse } from '../utils/api.js';
 
 const AppContext = createContext();
 
@@ -600,7 +600,7 @@ export const AppProvider = ({ children }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) {
         throw new Error(data.error || 'Login failed');
       }
@@ -642,7 +642,7 @@ export const AppProvider = ({ children }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, phone, countryCode })
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) {
         throw new Error(data.error || 'Registration failed');
       }

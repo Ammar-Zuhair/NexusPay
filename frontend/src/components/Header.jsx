@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { LogoMark } from './LogoMark';
 import { TopUpModal } from './TopUpModal';
 import { SUPPORTED_COUNTRIES } from '../data/mockData';
-import { API_BASE_URL } from '../utils/api.js';
+import { API_BASE_URL, parseJsonResponse } from '../utils/api.js';
 import { 
   Menu, X, Globe, DollarSign, User, Wallet, ShoppingBag, 
   LogOut, Sun, Moon, ShieldCheck, Home, Gamepad2, Plus 
@@ -174,7 +174,11 @@ export const Header = () => {
         setAuthError(lang === 'ar' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة' : 'Invalid email or password');
       }
     } else {
-      // Register: client-side confirm check
+      // Register: client-side checks for phone and password match
+      if (!phoneInput.trim()) {
+        setAuthError(lang === 'ar' ? 'يرجى إدخال رقم الهاتف الجوال (إجباري)' : 'Please enter your phone number');
+        return;
+      }
       if (passwordInput !== confirmPwInput) {
         setAuthError(lang === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
         return;
@@ -185,15 +189,15 @@ export const Header = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: nameInput || 'مستخدم جديد', email: emailInput, password: passwordInput, phone: phoneInput, countryCode: countryCodeInput || '+967' })
         });
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         if (res.ok && data.requiresOtp) {
           setPendingEmail(emailInput);
           setAuthStep('otp');
         } else if (data.error) {
           setAuthError(data.error);
         }
-      } catch {
-        setAuthError(lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server');
+      } catch (err) {
+        setAuthError(err.message || (lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server'));
       }
     }
   };
@@ -208,7 +212,7 @@ export const Header = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: pendingEmail, otp: otpInput })
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (res.ok && data.success) {
         // Auto-login after OTP
         const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -216,7 +220,7 @@ export const Header = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: pendingEmail, password: passwordInput })
         });
-        const loginData = await loginRes.json();
+        const loginData = await parseJsonResponse(loginRes);
         if (loginRes.ok && loginData.user) {
           await login(pendingEmail, passwordInput);
         }
@@ -231,8 +235,8 @@ export const Header = () => {
       } else {
         setAuthError(data.error || 'رمز التحقق غير صحيح');
       }
-    } catch {
-      setAuthError(lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server');
+    } catch (err) {
+      setAuthError(err.message || (lang === 'ar' ? 'تعذر الاتصال بالخادم' : 'Cannot connect to server'));
     } finally {
       setOtpLoading(false);
     }
@@ -883,12 +887,43 @@ export const Header = () => {
             {authStep === 'form' && (
               <form onSubmit={handleAuthSubmit} className="space-y-3">
                 {authMode === 'register' && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'الاسم الكامل' : 'Full Name'}</label>
-                    <input type="text" required value={nameInput} onChange={e => setNameInput(e.target.value)}
-                      placeholder={lang === 'ar' ? 'مثال: أحمد محمود' : 'e.g. John Smith'}
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
-                  </div>
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'ar' ? 'الاسم الكامل *' : 'Full Name *'}</label>
+                      <input type="text" required value={nameInput} onChange={e => setNameInput(e.target.value)}
+                        placeholder={lang === 'ar' ? 'مثال: أحمد محمود' : 'e.g. John Smith'}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white" />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        {lang === 'ar' ? 'الدولة ورقم الجوال (إجباري) *' : 'Country & Phone Number (Required) *'}
+                      </label>
+                      <div className="flex gap-2">
+                        <select
+                          value={countryCodeInput}
+                          onChange={e => setCountryCodeInput(e.target.value)}
+                          className="w-1/3 px-2 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black text-slate-900 dark:text-white"
+                        >
+                          <option value="+967">🇾🇪 اليمن (+967)</option>
+                          <option value="+966" disabled>🇸🇦 السعودية (+966) (قريباً)</option>
+                          <option value="+971" disabled>🇦🇪 الإمارات (+971) (قريباً)</option>
+                          <option value="+20" disabled>🇪🇬 مصر (+20) (قريباً)</option>
+                        </select>
+                        <input
+                          type="tel"
+                          required
+                          value={phoneInput}
+                          onChange={e => setPhoneInput(e.target.value.replace(/\D/g, ''))}
+                          placeholder="770 000 000"
+                          className="w-2/3 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold font-mono text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <p className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
+                        {lang === 'ar' ? '🇾🇪 الدولة المدعومة حالياً: اليمن (+967)' : '🇾🇪 Currently supporting Yemen (+967) only'}
+                      </p>
+                    </div>
+                  </>
                 )}
 
                 <div className="space-y-1">
