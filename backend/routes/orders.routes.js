@@ -90,11 +90,19 @@ router.post('/orders', async (req, res, next) => {
     const currentUserId = targetUserId;
 
     // 1. Calculate Comprehensive Net Profit Formula:
-    const sellPrice = parseFloat(priceUSD) * parseInt(quantity, 10);
-    const providerCost = parseFloat(providerCostUSD) * parseInt(quantity, 10);
-    const gatewayFee = parseFloat(gatewayFeeUSD);
-    const couponDiscount = parseFloat(couponDiscountUSD);
-    const tax = parseFloat(taxUSD);
+    const rawPrice = parseFloat(priceUSD) || 0;
+    // If totalUSD is explicitly provided or items array contains elements, use the exact total price instead of double-multiplying by quantity
+    const sellPrice = (req.body.totalUSD !== undefined || (items && items.length > 0))
+      ? (parseFloat(req.body.totalUSD || priceUSD) || rawPrice)
+      : (rawPrice * parseInt(quantity || 1, 10));
+
+    const providerCost = (items && items.length > 0)
+      ? (parseFloat(providerCostUSD) || (sellPrice * 0.85))
+      : (parseFloat(providerCostUSD) * parseInt(quantity || 1, 10));
+
+    const gatewayFee = parseFloat(gatewayFeeUSD) || 0;
+    const couponDiscount = parseFloat(couponDiscountUSD) || 0;
+    const tax = parseFloat(taxUSD) || 0;
     const netProfit = sellPrice - providerCost - gatewayFee - couponDiscount - tax;
 
     let updatedBalance = null;
